@@ -413,11 +413,18 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   position: absolute;
   left: 0;
   top: 0;
-  width: 6px;
+  /* Thickness is a token so the finished state can double it in one place. */
+  width: var(--boot-rail-w, 6px);
   height: 100%;
   margin: 0;
+  transition: width 220ms linear;
   animation: boot-rise 420ms linear 120ms both;
 }
+/* At 100% the rail thickens to roughly twice its width. That is what marks the end of
+   the count and hands the eye to the exit. The figure shifts right by the same amount so
+   it does not end up sitting on the wider bar. */
+.boot--full { --boot-rail-w: 12px; }
+.boot--full .boot__progressText { left: calc(3.125rem + 6px); }
 .boot__progressBar {
   position: absolute;
   left: 0;
@@ -541,7 +548,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   background: linear-gradient(90deg,
     var(--primary),
     color-mix(in oklab, var(--primary) 70%, #fff));
-  animation: boot-fadeIn 620ms linear forwards;
+  /* Slow on the left, accelerating to the right. cubic-bezier(0.42, 0, 1, 1) is an
+     ease-IN, which is precisely "left slow, right fast". This is the one curve on the
+     screen that is not linear, and it is here because it was asked for by name. */
+  animation: boot-fadeIn 620ms cubic-bezier(0.42, 0, 1, 1) forwards;
 }
 @keyframes boot-fadeIn {
   0%   { transform: scaleX(0); }
@@ -567,7 +577,16 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 /* The overlay itself only fades once the band has arrived and held. */
 .boot--done {
   opacity: 0;
-  transition: opacity 500ms linear;
+  transition: opacity 350ms linear;
+}
+/* The page fades in over the same window, so the two cross-fade rather than the overlay
+   lifting off a page that was already fully visible underneath. Only the document's
+   opacity animates; the background stays solid, so nothing shows through to the browser
+   chrome mid-transition. */
+html.boot-entering body { opacity: 0; }
+html.boot-entering.boot-entered body {
+  opacity: 1;
+  transition: opacity 350ms linear;
 }
 
 /* --- sizing only: the axis never changes -------------------------------- */
@@ -593,14 +612,26 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 
 /* --- motion: everything decorative stops on request --------------------- */
 @media (prefers-reduced-motion: reduce) {
-  .boot__mark::before { animation: none; }
+  /* Class names here had drifted from the markup: this block still named
+     `.boot__mark`, `.boot__fill`, `.boot__meter`, `.boot__title` and `.boot__hint`,
+     none of which exist any more, so it had quietly stopped doing anything. The names
+     below are the live ones. */
+  .boot__logo,
+  .boot__moreDeco,
+  .boot__progress,
+  .boot__hint,
+  .boot__error { animation: none; }
+  .boot__logo::before,
   .boot__glyph { animation: none; }
-  .boot__fill { transition: none; }
-  /* The wipe is not removed, only collapsed: the screen still has to clear, and an
-     instant clear is the reduced-motion equivalent of the same event. */
+  .boot__progressBar,
+  .boot__progressText,
+  .boot__progress { transition: none; }
+  /* The exit is not removed, only collapsed: the screen still has to clear, and an
+     instant clear is the reduced-motion equivalent of the same event. The cross-fade is
+     dropped because there is no motion to soften. */
   .boot--done { transition: opacity 120ms linear; }
   .boot--done::after { animation-duration: 1ms; }
-  .boot__mark, .boot__title, .boot__meter, .boot__hint, .boot__error { animation: none; }
+  html.boot-entering.boot-entered body { transition: none; }
   .btn { transition: none; }
   *, *::before, *::after {
     animation-duration: 0.001ms !important;

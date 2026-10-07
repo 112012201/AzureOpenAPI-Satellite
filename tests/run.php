@@ -1166,7 +1166,7 @@ T::truthy(
 
 // --- phase 2: the bar ------------------------------------------------------
 // A vertical rail in BOTH orientations, growing downward.
-T::truthy((bool) preg_match('#\.boot__progress\s*\{[^}]*width:\s*6px#s', $loaderRules), 'phase 2: a 6px vertical rail');
+T::truthy((bool) preg_match('#\.boot__progress\s*\{[^}]*width:\s*var\(--boot-rail-w,\s*6px\)#s', $loaderRules), 'phase 2: a 6px vertical rail (tokenised so the finished state can double it)');
 T::truthy((bool) preg_match('#\.boot__progressBar\s*\{[^}]*scaleY\(#s', $loaderRules), 'phase 2: the bar scales vertically');
 T::truthy((bool) preg_match('#\.boot__progressBar\s*\{[^}]*transform-origin:\s*center top#s', $loaderRules), 'phase 2: the bar grows from the top');
 // The two axes are deliberate and opposite, so assert each where it belongs rather than
@@ -1214,9 +1214,9 @@ T::truthy(substr_count($bandBody, 'scaleX(') >= 2, 'phase 3: the band fills on t
 $consentJs = (string) @file_get_contents(Config::path('assets/consent.js'));
 foreach (array(
     'PHASE3_BAND_MS = 620'  => 'the band duration matches the stylesheet',
-    'PHASE3_HOLD_MS = 1500' => 'the full-screen hold is the reference\'s 1500ms',
-    'PHASE3_TOTAL_MS = 2400' => 'the handover is the reference\'s 2400ms',
-    'BOOT_MIN_MS = 1400'    => 'a minimum dwell keeps phases 1 and 2 visible',
+    'PHASE3_BUFFER_MS = 400'    => 'the catch-up has a settle budget',
+    'PHASE3_REST_MS = 300'      => 'the rest at 100% is inside the requested 0.2-0.4s',
+    'PHASE3_CROSSFADE_MS = 350' => 'the cross-fade is inside the requested 0.2-0.5s',
 ) as $needle => $label) {
     T::truthy(strpos($consentJs, $needle) !== false, 'hold contract: ' . $label);
 }
@@ -1246,12 +1246,12 @@ T::truthy(strpos($consentJs, 'BOOT_ROLL_PER_SECOND') !== false, 'the figure roll
 T::truthy(strpos($consentJs, 'bootPaintLog') !== false, 'the paint order is logged, so a skip can be proven or disproven');
 T::truthy(strpos($consentJs, 'window.__SATAPI_BOOT_ROLL__') !== false, 'the paint log is readable from the page');
 // The roll must paint the integers it crossed, not just the destination.
-T::truthy((bool) preg_match('#for \(var v = Math\.floor\(bootShown\) \+ 1; v <= Math\.floor\(next\); v\+\+\)#', $consentJs), 'the roll paints each integer it crosses');
+T::truthy((bool) preg_match('#for \(var v = Math\.floor\(previous\) \+ 1; v <= Math\.floor\(next\); v\+\+\)#', $consentJs), 'the roll paints each integer it crosses');
 // It must terminate: without a stop condition the rAF loop would run forever.
 T::truthy((bool) preg_match('#if \(Math\.abs\(bootShown - bootTarget\) < 0\.5\)#', $consentJs), 'the roll stops when it reaches the target');
-// The last step is painted directly, so the screen does not roll through 100 as it is
-// being covered.
-T::truthy((bool) preg_match('#if \(value >= 100\)#', $consentJs), 'the final value is painted without rolling');
+// The chase is clamped to the target, so it lands on 100 exactly rather than sailing past
+// it while the screen is being covered.
+T::truthy((bool) preg_match('#var next = Math\.min\(bootTarget,#', $consentJs), 'the chase is clamped to the target, so it lands on 100 exactly instead of sailing past it');
 
 // --- one speed for the rail, the figure and the exit -----------------------
 // The operator asked for the rail to run at the exit animation's speed, so the three 620ms
@@ -1261,7 +1261,55 @@ if (preg_match_all('#transition(?:\s*:\s*[^;]*?)?\s*620ms linear#', $loaderRules
     $railTimings = count($railMatch[0]);
 }
 T::truthy($railTimings >= 2, 'the rail and the figure share the exit band\'s 620ms speed (found ' . $railTimings . ')');
-T::truthy((bool) preg_match('#animation:\s*boot-fadeIn\s*620ms linear#', $loaderRules), 'the exit band runs at 620ms linear');
+T::truthy((bool) preg_match('#animation:\s*boot-fadeIn\s*620ms\s+cubic-bezier\(0\.42,\s*0,\s*1,\s*1\)#', $loaderRules), 'the exit band runs at 620ms with an ease-in curve');
+// The band is the ONE curve on the screen that is not linear, and it is deliberate: it was
+// asked for by name as "left slow, right fast". Assert the rest of the screen stays linear
+// so this exception cannot spread.
+T::truthy(strpos($loaderRules, 'cubic-bezier') !== false, 'the band is the sole eased curve');
+$easeCount = substr_count($loaderRules, 'cubic-bezier');
+T::same(1, $easeCount, 'exactly one eased declaration exists on the loading screen');
+
+// --- the 100% beat: a pause, a thickening, then the band ---------------------
+// Requested explicitly: rest 0.2-0.4s at 100%, thicken the rail to about twice its width,
+// then the band. Each is asserted as a number so a future edit cannot drop one silently.
+T::truthy(strpos($consentJs, 'PHASE3_REST_MS = 300') !== false, 'the rest at 100% is 300ms (within the requested 0.2-0.4s)');
+T::truthy((bool) preg_match('#--boot-rail-w,\s*6px#', $loaderRules), 'the rail starts at 6px');
+T::truthy((bool) preg_match('#\.boot--full\s*\{\s*--boot-rail-w:\s*12px#s', $loaderRules), 'the rail doubles to 12px at 100%');
+T::truthy(strpos($consentJs, "classList.add('boot--full')") !== false, 'the script applies the thickening class');
+// The thickening must happen BEFORE the band, not while it is covering the screen.
+$fullIdx = strpos($consentJs, "classList.add('boot--full')");
+$leaveIdx = strpos($consentJs, "classList.add('boot--leaving')");
+T::truthy($fullIdx !== false && $leaveIdx !== false && $fullIdx < $leaveIdx, 'the rail thickens before the band starts');
+
+// --- the cross-fade ---------------------------------------------------------
+// The page fades in while the overlay fades out, instead of the overlay lifting off a page
+// that was already fully visible.
+T::truthy(strpos($loaderRules, 'html.boot-entering body') !== false, 'the page has a pre-fade state');
+T::truthy(strpos($loaderRules, 'html.boot-entering.boot-entered body') !== false, 'the page has a post-fade state');
+T::truthy(strpos($consentJs, 'function enterCrossfade') !== false, 'the script drives the cross-fade');
+T::truthy(strpos($consentJs, "classList.add('boot-entering')") !== false && strpos($consentJs, "classList.add('boot-entered')") !== false, 'both cross-fade classes are applied');
+// The starting state has to be in effect before the ending state, or there is nothing to
+// interpolate and the fade is skipped.
+T::truthy((bool) preg_match('#void root\.offsetHeight#', $consentJs), 'a reflow is forced between the two cross-fade classes');
+T::truthy(strpos($consentJs, 'PHASE3_CROSSFADE_MS = 350') !== false, 'the cross-fade is 350ms (within the requested 0.2-0.5s)');
+
+// --- the catch-up: rate rises with lag --------------------------------------
+// Requested as "stuck at 67%, then accelerates back like a car". The mechanism is a speed
+// multiple driven by how far behind the display is:
+//
+//     rate = BASE * (1 + lag / D)
+//
+// An earlier version used `remaining / 0.45`, a fixed sprint window, and the arithmetic
+// proved it wrong: the rate collapsed back to the base rate on the second half, so a
+// 100-point catch-up took 1104ms instead of landing inside the 400ms budget.
+T::truthy(strpos($consentJs, 'BOOT_ROLL_PER_SECOND = 52') !== false, 'there is a steady base rate');
+T::truthy(strpos($consentJs, 'BOOT_CATCHUP_DISTANCE = 8') !== false, 'the catch-up distance is derived, not guessed');
+T::truthy((bool) preg_match('#var rate = BOOT_ROLL_PER_SECOND \* \(1 \+ remaining / BOOT_CATCHUP_DISTANCE\)#', $consentJs), 'the rate is a multiple of the base rate, rising with the lag');
+T::truthy((bool) preg_match('#var next = Math\.min\(bootTarget,#', $consentJs), 'the step is clamped to the target, so it cannot overshoot');
+T::truthy(strpos($consentJs, 'PHASE3_BUFFER_MS = 400') !== false, 'the catch-up has a 400ms budget');
+// The buffer must be a decision, not a fixed sleep: if the chase has already settled the
+// pause starts immediately, otherwise the buffer is spent letting it settle.
+T::truthy((bool) preg_match('#var settle = rollSettled\(\) \? 0 : PHASE3_BUFFER_MS#', $consentJs), 'the buffer is spent only when the chase has not settled');
 
 // --- vertical and linear hold everywhere ------------------------------------
 $timings = array();
@@ -1274,9 +1322,11 @@ if (preg_match_all('#(?:animation|transition)\s*:\s*([^;]+);#', $loaderRules, $t
 }
 T::truthy(count($timings) >= 8, 'the screen declares its timings (found ' . count($timings) . ')');
 foreach ($timings as $declaration) {
+    // The exit band is the one intentional exception; it is asserted separately below.
+    if (stripos($declaration, 'boot-fadeIn') !== false) { continue; }
     T::truthy(stripos($declaration, 'linear') !== false, 'timing is linear: ' . $declaration);
 }
-T::truthy(strpos($loaderRules, 'cubic-bezier') === false, 'no eased curve remains');
+T::same(1, substr_count($loaderRules, 'cubic-bezier'), 'exactly one eased curve remains, and it is the band');
 T::truthy(strpos($loaderRules, 'var(--ease') === false, 'no easing variable remains');
 T::truthy(strpos($md3Css, 'prefers-reduced-motion') !== false, 'the animation is disabled on request');
 

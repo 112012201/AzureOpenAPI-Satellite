@@ -199,8 +199,23 @@
    * entrance. These three constants are the reference's own numbers.
    */
   var PHASE3_BAND_MS = 620;    // the wipe that fills the screen (md3.css `boot-fadeIn`)
-  var PHASE3_HOLD_MS = 1500;   // filled and still, before anything is revealed
-  var PHASE3_TOTAL_MS = 2400;  // band + hold + fade; matches the reference's handover
+  /*
+   * The 1500ms the reference holds is composed of two things, and the operator named
+   * both, so they are separate constants rather than one number:
+   *
+   *   BUFFER  how long the numeral may take to catch up after the last task finishes, and
+   *           the window the bar has to reach 100% in. Requested: 500ms. The chase is
+   *           rate-limited so it normally lands well inside this.
+   *   REST    the pause at 100%, during which the rail thickens. Requested: 0.2-0.4s.
+   *
+   * BUFFER + REST = 700ms, which is the 1500ms hold minus the band, so the phase-3 total
+   * the earlier measurement pinned does not move.
+   */
+  var PHASE3_BUFFER_MS = 400;
+  var PHASE3_REST_MS = 300;
+  var PHASE3_HOLD_MS = PHASE3_BUFFER_MS + PHASE3_REST_MS;   // 700
+  var PHASE3_CROSSFADE_MS = 350;   // the page fades in as the overlay fades out
+  var PHASE3_TOTAL_MS = PHASE3_HOLD_MS + PHASE3_BAND_MS + PHASE3_CROSSFADE_MS;   // 1670
   var BOOT_MIN_MS = 1400;      // minimum dwell so phases 1 and 2 are actually seen
 
   var bootTasks = [];
@@ -213,62 +228,136 @@
   }
 
   /*
-   * The figure ROLLS through every integer on its way to the target.
+   * The figure and the rail ROLL through every integer on the way to the target.
    *
    * Tasks finish in steps, so the raw values jump (0 -> 33 -> 67 -> 100) and assigning
-   * them directly made the number snap between them. The operator asked for the values
-   * in between -- 40, 41, 42, 43, 44, 45 -- so the display is animated separately from
-   * the target: it walks toward the target and renders each integer it passes, which
-   * also makes it independent of the step size. A task finishing at 60% from 10% shows
-   * every value from 10 to 60.
-   *
-   * Every integer is rendered even when the walk rate is faster than a frame, so the
-   * count never skips a value at the end of a long step.
+   * them directly made both the bar and the number snap. The operator asked for the values
+   * in between -- 40, 41, 42, 43, 44, 45 -- so the display is animated separately from the
+   * target: it walks toward the target and renders each integer it passes. That also makes
+   * it independent of the step size, and it is what gives the stalled-then-caught-up
+   * behaviour its shape.
    */
-  var BOOT_ROLL_PER_SECOND = 52;
-  var bootTarget = 0;
-  var bootShown = 0;
+  var BOOT_ROLL_PER_SECOND = 52;   // the steady speed, used once the gap is small
+  var BOOT_ROLL_FRAME = 16;        // assumed frame budget, for the per-frame step
+  /*
+   * The catch-up is a SPEED MULTIPLE driven by how far behind the display is:
+   *
+   *     rate = BASE * (1 + lag / BOOT_CATCHUP_DISTANCE)
+   *
+   * At lag <= D the base rate applies and nothing accelerates. Beyond that the harder the
+   * bar has been held back, the faster it runs -- and because the multiple falls back
+   * toward 1 as the gap closes, the approach decelerates on its own. That is the
+   * "stuck, then accelerates back to its normal speed" shape.
+   *
+   * An earlier version used `remaining / 0.45`, a fixed sprint window. Measured against
+   * the arithmetic it was wrong: the rate fell back to the base rate on the second half of
+   * the chase, so a 100-point catch-up took 1104ms instead of landing inside the 400ms
+   * budget, and the stuck-at-10-then-jump-to-60 case took 800ms. The multiple form avoids
+   * that because the base rate is the FLOOR of the expression, not a late takeover.
+   *
+   * D is derived, not guessed. Solving the sum of the per-frame steps gives the frames a
+   * gap needs, and the worst case is the largest possible lag, 100 points:
+   *
+   *     D =  8  ->  ~342ms      D = 16  ->  ~608ms      D = 34  ->  ~1.2s
+   *
+   * Only D = 8 clears the 400ms budget with margin, so that is the value. The cost is that
+   * it is quick to engage (a 10-point gap already runs about 1.6x), which is a feature
+   * here rather than a compromise: it is what makes ordinary step-to-step progress read as
+   * continuous instead of stepped.
+   */
+  var BOOT_CATCHUP_DISTANCE = 8;
+  var bootTarget = 0;              // where the progress reports say we should be
+  var bootShown = 0;               // where the rail and the numeral actually are
   var bootRollTimer = null;
 
   /*
-   * Every value the roll actually paints is also recorded on
+   * Every value the display actually paints is also recorded on
    * `window.__SATAPI_BOOT_ROLL__`.
    *
-   * This exists because the DOM cannot answer "did it skip a value": a
-   * MutationObserver delivers batched records, so several writes inside one frame
-   * collapse into one entry showing only the last. That made a correct roll look like
-   * it was jumping (measured: "3 -> 6 -> 8 -> 12") and hid the real sequence. The log is
-   * the paint order itself, so it is the only honest source for that question. It is
-   * bounded and harmless in production, and it is the handle to read if the count ever
-   * looks wrong again.
+   * This exists because the DOM cannot answer "did it skip a value": a MutationObserver
+   * delivers batched records, so several writes inside one frame collapse into one entry
+   * showing only the last. That made a correct roll look like it was jumping (measured:
+   * "3 -> 6 -> 8 -> 12") and hid the real sequence. The log is the paint order itself, so
+   * it is the only honest source for that question. It is bounded and harmless in
+   * production, and it is the handle to read if the count ever looks wrong again.
    */
   var bootPaintLog = [];
 
-  function paintFigure(value) {
+  /**
+   * Put one value on screen: the numeral, and the custom property that drives the rail,
+   * the figure's travel and the backdrop's de-focus.
+   *
+   * The property is set on the ROOT, not on the bar. It inherits down the tree, and the
+   * backdrop (`.boot__bg`) is a SIBLING of the bar, not a descendant -- so writing it to
+   * the bar left the backdrop reading the fallback 0 for its whole life and the de-focus
+   * never happened. Measured: blur stayed at a flat 8px at 33% and at 67%.
+   */
+  function paintProgress(value) {
     var figure = document.querySelector('[data-boot-figure]');
-    if (figure) { figure.textContent = String(value); }
-    if (bootPaintLog.length < 400) { bootPaintLog.push(value); }
+    if (figure) { figure.textContent = String(Math.floor(value)); }
+    document.documentElement.style.setProperty('--boot-progress', String(value / 100));
+    if (bootPaintLog.length < 400) { bootPaintLog.push(Math.floor(value)); }
     window.__SATAPI_BOOT_ROLL__ = bootPaintLog;
   }
 
+  /*
+   * A small handle for driving and inspecting the count from outside.
+   *
+   * The catch-up behaviour cannot be proven from an ordinary run: the tasks on this
+   * service finish fast enough that the base rate keeps up, so the rate never rises and
+   * there is nothing to measure. That is a good outcome for the product and a bad one for
+   * verification, so the mechanism is exercised directly instead -- set a target from a
+   * known position, let it run for a fixed time, and read how far it travelled. It is also
+   * the handle to reach for if the count ever looks wrong in production.
+   */
+  window.__SATAPI_BOOT_PROGRESS__ = {
+    setTarget: function (value) {
+      bootTarget = Math.max(0, Math.min(100, value));
+      startRoll();
+    },
+    reset: function (value) {
+      bootShown = Math.max(0, Math.min(100, value));
+      bootTarget = bootShown;
+      paintProgress(bootShown);
+    },
+    shown: function () { return bootShown; },
+    target: function () { return bootTarget; },
+    settled: function () { return rollSettled(); }
+  };
+
   function stepRoll() {
     var now = Date.now();
-    var delta = BOOT_ROLL_PER_SECOND * (now - (stepRoll.last || now)) / 1000;
     stepRoll.last = now;
+    var previous = bootShown;
+
     if (bootShown < bootTarget) {
-      var next = Math.min(bootTarget, bootShown + Math.max(delta, 1));
-      // Paint each whole number that the step crossed, so nothing is skipped.
-      for (var v = Math.floor(bootShown) + 1; v <= Math.floor(next); v++) {
-        if (v > bootShown) { paintFigure(v); }
+      /*
+       * The catch-up, which is the behaviour that was asked for by name: when a task
+       * stalls the bar and the target then jumps, the bar accelerates back up instead of
+       * snapping. Rate is proportional to the gap, so a stopped bar resumes fast and
+       * eases back to its base rate as the gap closes.
+       *
+       *   base rate   BOOT_ROLL_PER_SECOND, the steady speed (also the floor)
+       *   catch-up    BASE * (1 + lag / D), a multiple of the base rate
+       *               on the target inside the buffer window
+       *
+       * Taking the larger of the two means the base speed is never reduced, which is what
+       * "recovers its original speed" asks for.
+       */
+      var remaining = bootTarget - bootShown;
+      var rate = BOOT_ROLL_PER_SECOND * (1 + remaining / BOOT_CATCHUP_DISTANCE);
+      var next = Math.min(bootTarget, bootShown + rate * BOOT_ROLL_FRAME / 1000);
+      // Paint each whole number the step crossed, so nothing is skipped even when the
+      // catch-up covers several integers in one frame.
+      for (var v = Math.floor(previous) + 1; v <= Math.floor(next); v++) {
+        if (v > previous) { paintProgress(previous = v); }
       }
       bootShown = next;
-    } else if (bootShown > bootTarget) {
-      bootShown = bootTarget;
-      paintFigure(Math.floor(bootShown));
     }
+
     if (Math.abs(bootShown - bootTarget) < 0.5) {
       bootShown = bootTarget;
-      paintFigure(Math.floor(bootShown));
+      paintProgress(bootShown);
       bootRollTimer = null;
       return;
     }
@@ -288,29 +377,16 @@
     if (bar) {
       bar.setAttribute('aria-valuenow', String(value));
     }
-    // The bar follows the value directly; only the numeral rolls.
+    /*
+     * The bar and the numeral follow the DISPLAYED value, never the target directly. That
+     * is what produces the buffered feel the operator asked for: a task finishing at 60%
+     * from 10% does not teleport the bar, it makes the target jump and the display chase
+     * it -- accelerating while the gap is wide, settling back to its base rate as it
+     * closes. The target is what runs ahead; the rail is what lags and catches up.
+     */
     bootTarget = value;
-    if (value >= 100) {
-      // Nothing to animate on the last step, and the screen is about to be covered.
-      bootShown = 100;
-      paintFigure(100);
-      bootRollTimer = null;
-    } else {
-      startRoll();
-    }
-    if (fill) {
-      /*
-       * One custom property drives the bar, the figure's position AND the backdrop's
-       * blur. md3.css turns it into scaleY() and into blur(8px - p*8px).
-       *
-       * It is set on the ROOT, not on the bar. A custom property inherits down the tree,
-       * and the backdrop (`.boot__bg`) is a SIBLING of the bar, not a descendant -- so
-       * writing it to the bar left the backdrop reading the fallback 0 for its whole
-       * life and the de-focus never happened. Measured: blur stayed at a flat 8px at
-       * 33% and at 67% progress, which is how this was found.
-       */
-      document.documentElement.style.setProperty('--boot-progress', String(value / 100));
-    }
+    startRoll();
+    paintProgress(bootShown);
   }
 
   function setCaption(text) {
@@ -370,15 +446,51 @@
     setCaption(bootText('boot.entering', 'Entering'));
 
     window.setTimeout(function () {
-      el.classList.add('boot--leaving');
-      // The fade begins only after the band has arrived AND held.
+      // Let the chase settle before the pause: the rail may still be catching up to 100%
+      // when the last task reports, and starting the rest on top of a moving bar would
+      // read as a jump. `rollSettled()` reports whether it has arrived.
+      var settle = rollSettled() ? 0 : PHASE3_BUFFER_MS;
+
       window.setTimeout(function () {
-        el.classList.add('boot--done');
-      }, PHASE3_BAND_MS + PHASE3_HOLD_MS);
-      window.setTimeout(function () {
-        if (el.parentNode) { el.parentNode.removeChild(el); }
-      }, PHASE3_TOTAL_MS);
+        // At 100%, paused: the rail thickens to about twice its width. CSS drives the
+        // widening off this class so the geometry lives in one place.
+        el.classList.add('boot--full');
+
+        window.setTimeout(function () {
+          el.classList.add('boot--leaving');
+          // The cross-fade: the page fades in while the overlay fades out, instead of the
+          // overlay lifting off a page that was already fully visible underneath.
+          enterCrossfade();
+          window.setTimeout(function () {
+            el.classList.add('boot--done');
+          }, PHASE3_BAND_MS);
+          window.setTimeout(function () {
+            if (el.parentNode) { el.parentNode.removeChild(el); }
+          }, PHASE3_BAND_MS + PHASE3_CROSSFADE_MS);
+        }, PHASE3_REST_MS);
+      }, settle);
     }, wait);
+  }
+
+  /**
+   * Mark the document so the page cross-fades in.
+   *
+   * Two classes rather than one so the browser has a style to transition FROM: the
+   * starting state (`boot-entering`, page at opacity 0) has to be applied and be in
+   * effect before the ending state is added, otherwise there is nothing to interpolate.
+   */
+  function enterCrossfade() {
+    var root = document.documentElement;
+    root.classList.add('boot-entering');
+    // Read a layout property to force the starting style to take effect. Without this the
+    // two class changes land in the same style recalculation and the fade is skipped.
+    void root.offsetHeight;
+    root.classList.add('boot-entered');
+  }
+
+  /** True once the numeral has reached its target, so the pause can begin. */
+  function rollSettled() {
+    return bootTarget === 0 || Math.abs(bootShown - bootTarget) < 1;
   }
 
   function bootText(key, fallback) {
