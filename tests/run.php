@@ -22,6 +22,7 @@ use SatApi\Data\Repository;
 use SatApi\Data\SourceMerge;
 use SatApi\Http\Request;
 use SatApi\Http\Response;
+use SatApi\Support\Announcement;
 use SatApi\Support\Maintenance;
 use SatApi\Support\Metrics;
 use SatApi\Support\Problem;
@@ -538,7 +539,26 @@ T::truthy(
     (bool) preg_match('/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/', (string) Config::get('service.version')),
     'service version is a semantic version (' . Config::get('service.version') . ')'
 );
-T::truthy(count(Config::sources()) >= 7, 'seven upstream sources configured');
+// Config::sources() must return ONLY data sources. The `sources` configuration block
+// also carries provider credentials (sources.spacetrack.identity/password); when the
+// filter was missing, that block was returned as a dataset, which put a
+// credential-carrying array into /v1/meta and emitted "Undefined array key
+// url/ttl/parser" warnings on every request. Asserting the exact id list makes a
+// future credential block fail loudly instead of leaking.
+T::same(Config::DATASETS, array_keys(Config::sources()), 'Config::sources() returns exactly the declared datasets');
+T::truthy(!array_key_exists('spacetrack', Config::sources()), 'the SpaceTrack credential block is not a data source');
+foreach (Config::sources() as $srcId => $srcDef) {
+    T::truthy(isset($srcDef['url']) && $srcDef['url'] !== '', 'source ' . $srcId . ' declares a url');
+    T::truthy(isset($srcDef['ttl']) && (int) $srcDef['ttl'] > 0, 'source ' . $srcId . ' declares a positive ttl');
+    T::truthy(isset($srcDef['parser']) && $srcDef['parser'] !== '', 'source ' . $srcId . ' declares a parser');
+    T::truthy(!isset($srcDef['password']) && !isset($srcDef['identity']), 'source ' . $srcId . ' carries no credential field');
+}
+// The secrets themselves must not appear anywhere in the public source descriptors.
+$sourceBlob = json_encode(array_values(Config::sources()));
+$pw = (string) Config::get('sources.spacetrack.password', '');
+if ($pw !== '') {
+    T::truthy(strpos((string) $sourceBlob, $pw) === false, 'no configured password appears in the source descriptors');
+}
 // CelesTrak blocks an IP that downloads "excessively" and restores access after
 // two quiet hours, so the refresh cadence and the TTL are deliberately aligned:
 // warmup runs every 6h and the TTL is 6h. Pinning the literal 10800 made the
@@ -838,5 +858,50 @@ T::truthy(
 $etagFull = \SatApi\Api\Endpoints\Base::etag(array('envelope' => 'full', 'etag' => '"abc"'));
 $etagNone = \SatApi\Api\Endpoints\Base::etag(array('envelope' => 'none', 'etag' => '"abc"'));
 T::truthy($etagFull !== $etagNone, 'different envelopes produce different ETags');
+
+// --- announcement -------------------------------------------------------
+// The banner is rendered server-side so it is visible without JavaScript and so the
+// EXPIRY is decided on the server. A notice whose lifetime a client controls is not
+// a notice.
+$annBase = Announcement::current();
+T::same(null, $annBase, 'no notice is rendered while announcement.enabled is false');
+$live = array('id' => 'n1', 'text' => 'x', 'href' => '', 'href_text' => '', 'level' => 'info', 'expires_at' => gmdate('Y-m-d\TH:i:s\Z', time() + 3600));
+T::truthy(Announcement::secondsRemaining($live) > 0, 'a notice with a future expiry reports time remaining');
+$past = array('id' => 'n1', 'text' => 'x', 'href' => '', 'href_text' => '', 'level' => 'info', 'expires_at' => gmdate('Y-m-d\TH:i:s\Z', time() - 60));
+T::same(0, Announcement::secondsRemaining($past), 'an expired notice reports zero remaining, never negative');
+T::same(array('enabled' => false), Announcement::clientConfig(null), 'no notice means the client config says so');
+$cc = Announcement::clientConfig($live);
+T::same(true, $cc['enabled'], 'client config reports the notice as enabled');
+T::same('announcement_dismissed', $cc['cookie'], 'the dismissal cookie name is stable');
+// Level is an enum: an arbitrary value must not reach the markup as an attribute.
+T::truthy(in_array('info', Announcement::LEVELS, true) && in_array('warning', Announcement::LEVELS, true), 'only info and warning are renderable levels');
+T::truthy(!in_array('<script>', Announcement::LEVELS, true), 'an arbitrary level is not in the allowed set');
+
+// --- config environment overrides ---------------------------------------
+// An empty environment variable is treated as "unset", so an operator cannot CLEAR a
+// configured value that way; a single dash is the explicit empty. Without this, a
+// configured announcement id could never be blanked and the derived id would never be
+// used, and a leaked credential could not be revoked from the environment.
+// Test the mapping rule itself rather than putenv(): the loop runs during bootstrap,
+// so a test cannot change the environment and re-observe the result without re-running
+// bootstrap. coerceEnvValue() is the production path, called by that loop.
+T::same('', Config::coerceEnvValue('-'), 'the "-" sentinel means deliberately empty');
+T::same(null, Config::coerceEnvValue(''), 'an empty value means "not set"');
+T::same(false, Config::coerceEnvValue('0'), 'env 0 is boolean false');
+T::same(false, Config::coerceEnvValue('false'), 'env false is boolean false');
+T::same(true, Config::coerceEnvValue('1'), 'env 1 is boolean true');
+T::same(true, Config::coerceEnvValue('yes'), 'env yes is boolean true');
+T::same(42, Config::coerceEnvValue('42'), 'a numeric env value becomes an int');
+T::same(3.5, Config::coerceEnvValue('3.5'), 'a fractional env value becomes a float');
+T::same('abc', Config::coerceEnvValue('abc'), 'a plain string passes through unchanged');
+T::same('  abc  ', Config::coerceEnvValue('  abc  '), 'a string is not trimmed (only the sentinel is special)');
+// The map must actually contain the SpaceTrack credential, because conf/config.php
+// documents the environment as the override path for rotating it.
+$configSource = (string) file_get_contents(Config::path('lib/Config.php'));
+T::truthy(strpos($configSource, "'SATAPI_SPACETRACK_PASSWORD'") !== false, 'the SpaceTrack password can be overridden from the environment');
+T::truthy(strpos($configSource, "'SATAPI_SPACETRACK_IDENTITY'") !== false, 'the SpaceTrack identity can be overridden from the environment');
+
+// --- sources list must never carry credentials --------------------------
+T::same(Config::DATASETS, array_keys(Config::sources()), 'Config::sources() is exactly the declared dataset list');
 
 exit(T::summary());

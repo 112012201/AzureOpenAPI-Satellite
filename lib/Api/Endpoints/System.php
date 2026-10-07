@@ -79,12 +79,16 @@ final class System extends Base
     {
         $sources = array();
         foreach (Config::sources() as $id => $source) {
+            // Defensive per field: this is a public document, and one malformed
+            // source entry must not turn the whole response into a 500 or emit a
+            // warning on every request. A missing field renders as null rather than
+            // as an "undefined array key" notice.
             $sources[] = array(
                 'id'          => $id,
-                'label'       => $source['label'],
-                'url'         => $source['url'],
-                'cache_ttl'   => (int) $source['ttl'],
-                'parser'      => $source['parser'],
+                'label'       => isset($source['label']) ? $source['label'] : $id,
+                'url'         => isset($source['url']) ? $source['url'] : '',
+                'cache_ttl'   => isset($source['ttl']) ? (int) $source['ttl'] : 0,
+                'parser'      => isset($source['parser']) ? $source['parser'] : '',
                 'attribution' => isset($source['attribution']) ? $source['attribution'] : '',
             );
         }

@@ -5,8 +5,11 @@
 
 User-agent: *
 Allow: /$
-Allow: /index.html
-Allow: /docs.html
+Allow: /
+Allow: /docs
+Allow: /legal
+Allow: /privacy
+Allow: /terms
 Allow: /openapi.yaml
 Allow: /favicon.ico
 Allow: /favicon-16x16.png
@@ -29,5 +32,4 @@ Disallow: /logs/
 Disallow: /conf/
 Disallow: /tests/
 Disallow: /bin/
-
 Sitemap: https://satellite.api.authskin.xyz/sitemap.xml

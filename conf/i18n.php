@@ -1,0 +1,187 @@
+<?php
+
+/**
+ * Interface strings for the three shipped locales.
+ *
+ * Written for each locale rather than machine-converted between them: the
+ * Traditional Chinese column uses Taiwanese/Hong Kong usage (資訊, 網路, 您),
+ * the Simplified column uses mainland usage (信息, 网络, 您), and the English
+ * column is written as English rather than as a translation of the Chinese. A
+ * mechanical conversion would produce 信息/資訊 mismatches and Simplified
+ * vocabulary inside Traditional text, which reads as careless to the audience it
+ * is meant for.
+ *
+ * Keys are flat and stable: `nav.overview`, `consent.title`, …
+ *
+ * @return array<string,array<string,string>> locale => key => text
+ */
+return array(
+
+    'en' => array(
+        'locale.name'        => 'English',
+        'page.home.title'    => 'AzureOpenAPI for Satellite · unified TLE and satellite metadata',
+        'page.home.description' => 'One de-duplicated TLE and satellite metadata feed merged from CelesTrak, AMSAT and SatNOGS DB. Edge-cached JSON or classic 20-column TLE, OpenAPI 3.1, RFC 9457 problem details.',
+        'nav.overview'       => 'Overview',
+        'nav.docs'           => 'API docs',
+        'nav.status'         => 'Status',
+        'nav.privacy'        => 'Privacy',
+        'nav.terms'          => 'Terms',
+        'nav.language'       => 'Language',
+
+        'announce.default'   => 'Service notice',
+        'announce.dismiss'   => 'Dismiss',
+        'announce.learn'     => 'Learn more',
+
+        'consent.title'      => 'Cookies and data use',
+        'consent.intro'      => 'This site uses a small number of cookies. You choose which categories are stored, and your choice is remembered in a cookie that is itself necessary.',
+        'consent.cat.essential.title'   => 'Strictly necessary',
+        'consent.cat.essential.desc'    => 'Required for the site to work and to remember your choice. These are always set, including when you reject everything — without them your own selection could not be recorded.',
+        'consent.cat.preferences.title' => 'Preferences',
+        'consent.cat.preferences.desc'  => 'Remembers the theme you picked. Off unless you allow it.',
+        'consent.cat.analytics.title'   => 'Analytics',
+        'consent.cat.analytics.desc'    => 'Aggregate visit counts. Off unless you allow it.',
+        'consent.accept_all' => 'Accept all',
+        'consent.essential_only' => 'Essential only',
+        'consent.reject_all' => 'Reject everything',
+        'consent.settings'   => 'Cookie settings',
+        'consent.policy_link' => 'Read the privacy policy',
+        'consent.terms_link' => 'Read the terms of service',
+        'consent.rejected_note' => 'You rejected optional cookies. Theme choice and visit statistics are unavailable; everything else on this site still works.',
+        'consent.essential_note' => 'Only necessary cookies are stored. Theme choice and visit statistics are unavailable.',
+
+        'legal.title'        => 'Privacy policy and terms of service',
+        'legal.privacy'      => 'Privacy policy',
+        'legal.terms'        => 'Terms of service',
+        'legal.updated'      => 'Last updated',
+        'legal.version'      => 'Version',
+        'legal.review_notice' => 'This document is a template prepared for this service. It is not legal advice; have it reviewed before relying on it.',
+        'legal.overview'     => 'Overview',
+        'legal.meta.description' => 'Privacy policy and terms of service for the AzureOpenAPI for Satellite service, in Simplified Chinese, Traditional Chinese and English.',
+
+        'pow.title'          => 'Verifying your browser',
+        'pow.intro'          => 'A short proof-of-work challenge runs before the page loads. It usually takes a fraction of a second and keeps automated traffic off the API.',
+        'pow.working'        => 'Verifying…',
+        'pow.failed'         => 'Verification did not complete.',
+        'pow.retry'          => 'Try again',
+        'pow.skip'           => 'Continue without verifying',
+        'pow.unavailable'    => 'Verification is unavailable right now, so the page has been served without it.',
+        'pow.done'           => 'Verified.',
+
+        'loading.title'      => 'Preparing your session',
+        'loading.hint'       => 'Checking service status',
+        'error.notfound'     => 'There is no resource at this address.',
+        'error.return'       => 'Back to the overview',
+    ),
+
+    'zh-Hans' => array(
+        'locale.name'        => '简体中文',
+        'page.home.title'    => 'AzureOpenAPI for Satellite · 统一的 TLE 与卫星元数据接口',
+        'page.home.description' => '把 CelesTrak、AMSAT 与 SatNOGS DB 去重合并成一份 TLE 与卫星元数据源。边缘缓存的 JSON，或经典 20 列 TLE；OpenAPI 3.1 描述，错误遵循 RFC 9457。',
+        'nav.overview'       => '概览',
+        'nav.docs'           => 'API 文档',
+        'nav.status'         => '服务状态',
+        'nav.privacy'        => '隐私政策',
+        'nav.terms'          => '服务协议',
+        'nav.language'       => '语言',
+
+        'announce.default'   => '服务公告',
+        'announce.dismiss'   => '关闭',
+        'announce.learn'     => '了解更多',
+
+        'consent.title'      => 'Cookie 与数据使用',
+        'consent.intro'      => '本站使用少量 Cookie。您可以选择存储哪些类别，您的选择会记录在一个本身属于必要项的 Cookie 中。',
+        'consent.cat.essential.title'   => '绝对必要',
+        'consent.cat.essential.desc'    => '网站运行与记住您的选择所必需。即使您拒绝全部，这几项仍会写入——否则连您自己的选择都无法记住。',
+        'consent.cat.preferences.title' => '偏好设置',
+        'consent.cat.preferences.desc'  => '记住您选择的主题。未同意时不启用。',
+        'consent.cat.analytics.title'   => '访问统计',
+        'consent.cat.analytics.desc'    => '汇总访问量。未同意时不启用。',
+        'consent.accept_all' => '全部同意',
+        'consent.essential_only' => '仅必要项',
+        'consent.reject_all' => '全部拒绝',
+        'consent.settings'   => 'Cookie 设置',
+        'consent.policy_link' => '阅读隐私政策',
+        'consent.terms_link' => '阅读服务协议',
+        'consent.rejected_note' => '您已拒绝可选 Cookie。主题记忆与访问统计不可用，本站其余功能不受影响。',
+        'consent.essential_note' => '仅存储必要 Cookie。主题记忆与访问统计不可用。',
+
+        'legal.title'        => '隐私政策与服务协议',
+        'legal.privacy'      => '隐私政策',
+        'legal.terms'        => '服务协议',
+        'legal.updated'      => '最后更新',
+        'legal.version'      => '版本',
+        'legal.review_notice' => '本文件是为本服务准备的模板文本，不构成法律意见；正式依赖前请交由法务复核。',
+        'legal.overview'     => '总览',
+        'legal.meta.description' => 'AzureOpenAPI for Satellite 服务的隐私政策与服务协议，提供简体中文、繁体中文与英文版本。',
+
+        'pow.title'          => '正在验证您的浏览器',
+        'pow.intro'          => '页面加载前会执行一次简短的工作量证明校验，通常耗时不到一秒，用于阻挡自动化流量。',
+        'pow.working'        => '正在验证…',
+        'pow.failed'         => '验证未通过。',
+        'pow.retry'          => '重试',
+        'pow.skip'           => '跳过验证并继续',
+        'pow.unavailable'    => '验证服务当前不可用，页面已在未验证的情况下提供。',
+        'pow.done'           => '验证通过。',
+
+        'loading.title'      => '正在准备会话',
+        'loading.hint'       => '正在检查服务状态',
+        'error.notfound'     => '该地址没有对应的资源。',
+        'error.return'       => '返回概览',
+    ),
+
+    'zh-Hant' => array(
+        'locale.name'        => '繁體中文',
+        'page.home.title'    => 'AzureOpenAPI for Satellite · 統一的 TLE 與衛星中介資料 API',
+        'page.home.description' => '將 CelesTrak、AMSAT 與 SatNOGS DB 去重合併為一份 TLE 與衛星中介資料來源。邊緣快取的 JSON，或經典 20 欄 TLE；以 OpenAPI 3.1 描述，錯誤遵循 RFC 9457。',
+        'nav.overview'       => '總覽',
+        'nav.docs'           => 'API 文件',
+        'nav.status'         => '服務狀態',
+        'nav.privacy'        => '隱私權政策',
+        'nav.terms'          => '服務條款',
+        'nav.language'       => '語言',
+
+        'announce.default'   => '服務公告',
+        'announce.dismiss'   => '關閉',
+        'announce.learn'     => '瞭解更多',
+
+        'consent.title'      => 'Cookie 與資料使用',
+        'consent.intro'      => '本站使用少量 Cookie。您可以選擇要儲存哪些類別，您的選擇會記錄在一個本身屬於必要項目的 Cookie 中。',
+        'consent.cat.essential.title'   => '絕對必要',
+        'consent.cat.essential.desc'    => '網站運作與記住您的選擇所必需。即使您拒絕全部，這幾項仍會寫入——否則連您自己的選擇都無法記住。',
+        'consent.cat.preferences.title' => '偏好設定',
+        'consent.cat.preferences.desc'  => '記住您選擇的主題。未同意時不會啟用。',
+        'consent.cat.analytics.title'   => '流量統計',
+        'consent.cat.analytics.desc'    => '彙總瀏覽量。未同意時不會啟用。',
+        'consent.accept_all' => '全部同意',
+        'consent.essential_only' => '僅必要項目',
+        'consent.reject_all' => '全部拒絕',
+        'consent.settings'   => 'Cookie 設定',
+        'consent.policy_link' => '閱讀隱私權政策',
+        'consent.terms_link' => '閱讀服務條款',
+        'consent.rejected_note' => '您已拒絕選用性 Cookie。主題記憶與流量統計無法使用，本站其餘功能不受影響。',
+        'consent.essential_note' => '僅儲存必要 Cookie。主題記憶與流量統計無法使用。',
+
+        'legal.title'        => '隱私權政策與服務條款',
+        'legal.privacy'      => '隱私權政策',
+        'legal.terms'        => '服務條款',
+        'legal.updated'      => '最後更新',
+        'legal.version'      => '版本',
+        'legal.review_notice' => '本文件是為本服務準備的範本文字，不構成法律意見；正式依賴前請交由法務複核。',
+        'legal.overview'     => '總覽',
+        'legal.meta.description' => 'AzureOpenAPI for Satellite 服務的隱私權政策與服務條款，提供簡體中文、繁體中文與英文版本。',
+
+        'pow.title'          => '正在驗證您的瀏覽器',
+        'pow.intro'          => '頁面載入前會執行一次簡短的工作量證明驗證，通常耗時不到一秒，用來阻擋自動化流量。',
+        'pow.working'        => '正在驗證…',
+        'pow.failed'         => '驗證未通過。',
+        'pow.retry'          => '重試',
+        'pow.skip'           => '跳過驗證並繼續',
+        'pow.unavailable'    => '驗證服務目前無法使用，頁面已在未驗證的情況下提供。',
+        'pow.done'           => '驗證通過。',
+
+        'loading.title'      => '正在準備工作階段',
+        'loading.hint'       => '正在檢查服務狀態',
+        'error.notfound'     => '此位址沒有對應的資源。',
+        'error.return'       => '返回總覽',
+    ),
+);

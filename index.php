@@ -2,9 +2,19 @@
 /**
  * Front controller.
  *
- * Every dynamic request (v1 API, legacy routes, legacy .php files) ends up
- * here. Static assets (index.html, docs.html, openapi.yaml, swagger bundles)
- * are served directly by nginx and never reach PHP.
+ * Every dynamic request ends up here:
+ *   - the API and legacy routes, dispatched through Router;
+ *   - the landing page, rendered by HomePage (it needs a server-side locale
+ *     decision, the announcement banner and the consent markup in the document);
+ *   - the CLI, via Cli::run.
+ *
+ * Static assets (docs.html, openapi.yaml, the Swagger bundles, images) are served
+ * directly by nginx and never reach PHP.
+ *
+ * The landing page used to be a static index.html served by nginx. It is rendered
+ * here now because a static file cannot choose a language before the first byte or
+ * put the notice and consent markup into the document. Everything else about the
+ * routing contract is unchanged.
  */
 
 require __DIR__ . '/bootstrap.php';
@@ -21,8 +31,22 @@ if ($isCli && !defined('SATAPI_DISPATCH')) {
 $request = \SatApi\Http\Request::capture();
 \SatApi\Logger::setRequestId($request->requestId());
 
+// A legacy .php shim has already decided which route it is.
 if (defined('SATAPI_LEGACY_ROUTE')) {
     \SatApi\Api\Router::dispatch($request, SATAPI_LEGACY_ROUTE);
-} else {
-    \SatApi\Api\Router::dispatch($request);
+    exit;
 }
+
+// Documents before the router: they are pages, not API routes, and the router would
+// answer them with a 404 problem document.
+if (\SatApi\HomePage::handles($request)) {
+    \SatApi\HomePage::render($request);
+    exit;
+}
+$legalSection = \SatApi\Legal::section($request);
+if ($legalSection !== null) {
+    \SatApi\Legal::render($request, $legalSection);
+    exit;
+}
+
+\SatApi\Api\Router::dispatch($request);

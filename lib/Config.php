@@ -236,23 +236,31 @@ final class Config
             ),
 
             // ------------------------------------------------------------------
-            // Cookie categories exposed to the consent dialog.
+            // Cookie and local storage inventory exposed to the consent dialog
+            // AND published in the privacy policy.
             //
-            // `essential` cookies are written even when the visitor rejects
+            // `essential` entries are written even when the visitor rejects
             // everything: they are what makes the visitor's own choice and the
             // proof-of-work session possible. That is stated plainly in the dialog
-            // and in the privacy policy rather than being quietly assumed.
+            // and in the policy rather than being quietly assumed. The strings here
+            // are the single source of truth for both, so the policy cannot drift
+            // from the code.
             // ------------------------------------------------------------------
             'cookies' => array(
                 'version' => 1,
                 'essential' => array(
-                    'cookie_consent'         => 'Stores the choice made in the cookie dialog.',
-                    'announcement_dismissed' => 'Remembers which notice you dismissed.',
-                    'cap_session'            => 'Keeps a passed proof-of-work check for this browser.',
+                    'cookie_consent'         => 'Records the choice you made in the cookie dialog, so you are not asked again on every page.',
+                    'announcement_dismissed' => 'Records the identifier of the service notice you closed, so it stays closed.',
+                    'cap_session'            => 'Holds the proof-of-work session for this browser. Set only after a challenge is solved, and expires after 12 hours.',
                 ),
                 'preferences' => array(
-                    'satapi-theme' => 'Remembers the light or dark theme you picked.',
+                    'satapi-theme' => 'Remembers whether you chose the light or the dark theme.',
+                    'satapi-lang'  => 'Remembers the display language you selected, so the next page is already in it.',
                 ),
+                // No analytics cookie is set today. The category exists so the
+                // dialog, the policy and the code agree on the same three names,
+                // and so enabling analytics later is a configuration change rather
+                // than a silent new cookie.
                 'analytics' => array(),
                 'lifetime_days' => 180,
             ),
@@ -411,7 +419,26 @@ final class Config
             'SATAPI_ANNOUNCEMENT_ID'      => 'announcement.id',
             'SATAPI_ANNOUNCEMENT_TEXT'    => 'announcement.text',
             'SATAPI_ANNOUNCEMENT_HREF'    => 'announcement.href',
+            'SATAPI_ANNOUNCEMENT_HREF_TEXT' => 'announcement.href_text',
+            // ISO-8601. Evaluated on the server, so a client clock cannot revive an
+            // expired notice.
             'SATAPI_ANNOUNCEMENT_EXPIRES' => 'announcement.expires_at',
+            // 'info' or 'warning'; anything else collapses to 'info'.
+            'SATAPI_ANNOUNCEMENT_LEVEL'   => 'announcement.level',
+
+            // SpaceTrack credentials.
+            //
+            // These are read from conf/config.php by default (a file nginx denies and
+            // git ignores). The environment wins, so a credential can be rotated
+            // without editing a file, and `SATAPI_SPACETRACK_PASSWORD=-` clears
+            // whatever the file set. Keeping both paths working matters: the config
+            // file is the documented primary, and an environment that cannot override
+            // it would make a leaked credential impossible to revoke without a deploy.
+            'SATAPI_SPACETRACK_ENABLED'   => 'sources.spacetrack.enabled',
+            'SATAPI_SPACETRACK_IDENTITY'  => 'sources.spacetrack.identity',
+            'SATAPI_SPACETRACK_PASSWORD'  => 'sources.spacetrack.password',
+            'SATAPI_SPACETRACK_TIMEOUT'   => 'sources.spacetrack.timeout',
+            'SATAPI_SPACETRACK_CHUNK'     => 'sources.spacetrack.chunk_size',
             'SATAPI_CONSENT_REQUIRED'     => 'consent.required',
             'SATAPI_CONSENT_VERSION'      => 'consent.version',
             'SATAPI_POW_ENABLED'          => 'pow.enabled',
@@ -423,18 +450,65 @@ final class Config
 
         foreach ($map as $env => $path) {
             $value = getenv($env);
-            if ($value === false || $value === '') {
+            if ($value === false) {
                 continue;
             }
-            if (in_array($value, array('0', 'false', 'no', 'off'), true)) {
-                $value = false;
-            } elseif (in_array($value, array('1', 'true', 'yes', 'on'), true)) {
-                $value = true;
-            } elseif (is_numeric($value)) {
-                $value = $value + 0;
+            $coerced = self::coerceEnvValue($value);
+            if ($coerced === null) {
+                // Empty means "not set" -- the usual and safest reading, because an
+                // unset variable and an empty one are indistinguishable in most
+                // shells and a blank value silently wiping a credential would be a
+                // nasty surprise.
+                continue;
             }
-            self::set($path, $value);
+            self::set($path, $coerced);
         }
+    }
+
+    /**
+     * Turn one raw environment value into a configuration value.
+     *
+     * Returns null to mean "leave the configured value alone". Extracted from the
+     * loop so the rules are directly testable: the loop itself runs during bootstrap,
+     * which means a test cannot change the environment and re-observe the result
+     * without re-running bootstrap.
+     *
+     * The rules, in order:
+     *   `-`                -> '' deliberately EMPTY. An empty environment variable
+     *                         reads as "not set", so an operator needs an explicit
+     *                         way to clear a value that a config file set -- without
+     *                         it a configured announcement id could never be blanked,
+     *                         and a leaked credential could not be revoked from the
+     *                         environment.
+     *   ''                 -> null (not set)
+     *   0/false/no/off     -> false
+     *   1/true/yes/on      -> true
+     *   numeric            -> int or float
+     *   anything else      -> the string, unchanged
+     *
+     * @param string $value
+     * @return mixed|null
+     */
+    public static function coerceEnvValue($value)
+    {
+        $value = (string) $value;
+        if ($value === '-') {
+            return '';
+        }
+        if ($value === '') {
+            return null;
+        }
+        if (in_array($value, array('0', 'false', 'no', 'off'), true)) {
+            return false;
+        }
+        if (in_array($value, array('1', 'true', 'yes', 'on'), true)) {
+            return true;
+        }
+        if (is_numeric($value)) {
+            return $value + 0;
+        }
+
+        return $value;
     }
 
     private static function merge(array $base, array $overrides)
@@ -501,11 +575,45 @@ final class Config
     }
 
     /**
+     * The ids that are genuinely data sources: a URL to fetch, a cache TTL and a
+     * parser.
+     *
+     * This list exists because the `sources` configuration block also carries
+     * provider *credentials* (`sources.spacetrack.identity/password`). Without a
+     * filter, `sources()` returned that block as if it were a dataset, which put a
+     * credential-carrying array into `/v1/meta` and produced "Undefined array key
+     * url/ttl/parser" warnings on every request for it.
+     *
+     * Keeping the credential out of public output by *listing what is public* is the
+     * safer direction than by blacklisting what is not: a new credential block added
+     * later cannot leak by being forgotten.
+     */
+    const DATASETS = array(
+        'weather',
+        'amateur',
+        'amsat',
+        'satnogs',
+        'satnogs_satellites',
+        'satnogs_transmitters',
+        'amsat_status',
+    );
+
+    /**
+     * Only the configured data sources, never credential or policy blocks.
+     *
      * @return array<string,array<string,mixed>>
      */
     public static function sources()
     {
-        return (array) self::get('sources', array());
+        $configured = (array) self::get('sources', array());
+        $out = array();
+        foreach (self::DATASETS as $id) {
+            if (isset($configured[$id]) && is_array($configured[$id])) {
+                $out[$id] = $configured[$id];
+            }
+        }
+
+        return $out;
     }
 
     /**
