@@ -1,0 +1,249 @@
+/* ==========================================================================
+   Design tokens — Material Design 3 expressed as three levels.
+
+   Level 1  primitive   raw colour ramps, type scale, motion curves. No meaning.
+   Level 2  semantic    roles: surface, on-surface, primary, outline, error…
+   Level 3  component   what a card / button / dialog actually uses.
+
+   Nothing below level 3 is referenced by a component directly. That is the whole
+   point of the split: switching the brand hue is one edit at level 1, and a
+   component can be re-themed without touching the ramp.
+
+   Colour is authored in OKLCH. Compared with hex, it keeps perceived lightness
+   even across hues -- a blue and a yellow at L=0.55 actually look equally light --
+   which is what makes the dark theme legible rather than muddy, and it makes the
+   contrast relationship between a container and its "on-" colour predictable
+   instead of eyeballed.
+
+   Every value has a hex fallback in the same declaration for engines without
+   oklch(). The fallback is the value the palette was designed from.
+
+   The upstream reference the operator pointed at (ClassIsland) draws Material
+   Design 3 itself rather than pulling in a component library, and this file takes
+   the same route: MD3 is the visual language, not a dependency.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   LEVEL 1 — primitives
+   -------------------------------------------------------------------------- */
+:root {
+  /* Brand ramp. 600 is the anchor; the rest are perceptual steps around it. */
+  --p-cyan-050: oklch(0.977 0.019 205);
+  --p-cyan-100: oklch(0.936 0.045 203);
+  --p-cyan-200: oklch(0.876 0.078 201);
+  --p-cyan-300: oklch(0.800 0.106 200);
+  --p-cyan-400: oklch(0.714 0.127 202);
+  --p-cyan-500: oklch(0.635 0.128 205);
+  --p-cyan-600: oklch(0.560 0.115 207);
+  --p-cyan-700: oklch(0.487 0.098 209);
+  --p-cyan-800: oklch(0.412 0.080 211);
+  --p-cyan-900: oklch(0.346 0.064 213);
+
+  /* Secondary: violet, used sparingly for emphasis. */
+  --p-violet-300: oklch(0.808 0.101 293);
+  --p-violet-500: oklch(0.620 0.170 293);
+  --p-violet-700: oklch(0.505 0.166 293);
+
+  /* Neutrals with a slight cool cast, so they sit with the brand hue. */
+  --p-n-000: #ffffff;
+  --p-n-025: oklch(0.988 0.002 240);
+  --p-n-050: oklch(0.972 0.004 240);
+  --p-n-100: oklch(0.945 0.006 240);
+  --p-n-200: oklch(0.898 0.009 240);
+  --p-n-300: oklch(0.836 0.011 240);
+  --p-n-400: oklch(0.706 0.013 240);
+  --p-n-500: oklch(0.585 0.014 240);
+  --p-n-600: oklch(0.478 0.014 240);
+  --p-n-700: oklch(0.392 0.013 240);
+  --p-n-800: oklch(0.301 0.012 240);
+  --p-n-850: oklch(0.245 0.011 240);
+  --p-n-900: oklch(0.196 0.010 240);
+  --p-n-950: oklch(0.145 0.009 240);
+
+  /* Status ramps. */
+  --p-green-500: oklch(0.660 0.150 152);
+  --p-green-700: oklch(0.510 0.130 152);
+  --p-amber-500: oklch(0.760 0.150 78);
+  --p-amber-700: oklch(0.590 0.140 66);
+  --p-red-500: oklch(0.610 0.196 25);
+  --p-red-700: oklch(0.470 0.170 25);
+
+  /* Type scale (MD3 roles), fluid where it matters. */
+  --t-display: clamp(2.35rem, 1.35rem + 3.1vw, 3.5rem);
+  --t-headline: clamp(1.5rem, 1.1rem + 1.2vw, 2rem);
+  --t-title: 1.375rem;
+  --t-subtitle: 1.0625rem;
+  --t-body: 1rem;
+  --t-label: 0.875rem;
+  --t-caption: 0.78rem;
+
+  --w-regular: 400;
+  --w-medium: 500;
+  --w-semibold: 600;
+  --w-bold: 700;
+
+  /* Shape scale. MD3 leans on a small set of radii rather than ad-hoc values. */
+  --shape-xs: 6px;
+  --shape-sm: 10px;
+  --shape-md: 14px;
+  --shape-lg: 20px;
+  --shape-xl: 28px;
+  --shape-full: 999px;
+
+  /* Spacing: 4px base. */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 24px; --sp-8: 32px; --sp-10: 40px;
+  --sp-12: 48px; --sp-16: 64px; --sp-20: 80px;
+
+  /* Motion: MD3 emphasises both ends of the curve differently. */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-decelerate: cubic-bezier(0, 0, 0, 1);
+  --ease-accelerate: cubic-bezier(0.3, 0, 1, 1);
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --dur-short: 120ms;
+  --dur-medium: 240ms;
+  --dur-long: 420ms;
+
+  /* Layout. */
+  --wrap: 1120px;
+  --wrap-narrow: 820px;
+  --gutter: clamp(16px, 3vw, 28px);
+}
+
+/* --------------------------------------------------------------------------
+   LEVEL 2 — semantic roles, light
+   -------------------------------------------------------------------------- */
+:root {
+  --surface: var(--p-n-000);
+  --surface-dim: var(--p-n-050);
+  --surface-container-low: var(--p-n-025);
+  --surface-container: var(--p-n-050);
+  --surface-container-high: var(--p-n-100);
+  --on-surface: var(--p-n-900);
+  --on-surface-variant: var(--p-n-600);
+  --outline: var(--p-n-300);
+  --outline-variant: var(--p-n-200);
+
+  --primary: var(--p-cyan-700);
+  --on-primary: #ffffff;
+  --primary-container: var(--p-cyan-100);
+  --on-primary-container: var(--p-cyan-900);
+  --secondary: var(--p-violet-700);
+  --on-secondary: #ffffff;
+  --secondary-container: oklch(0.93 0.04 293);
+
+  --ok: var(--p-green-700);
+  --ok-container: oklch(0.93 0.06 152);
+  --warn: var(--p-amber-700);
+  --warn-container: oklch(0.94 0.07 78);
+  --bad: var(--p-red-700);
+  --bad-container: oklch(0.93 0.06 25);
+
+  /* Elevation as shadow rather than a surface tint, which keeps light mode clean. */
+  --elev-0: none;
+  --elev-1: 0 1px 2px color-mix(in oklab, var(--p-n-950) 8%, transparent),
+            0 1px 3px 1px color-mix(in oklab, var(--p-n-950) 6%, transparent);
+  --elev-2: 0 1px 2px color-mix(in oklab, var(--p-n-950) 10%, transparent),
+            0 2px 6px 2px color-mix(in oklab, var(--p-n-950) 8%, transparent);
+  --elev-3: 0 4px 8px 3px color-mix(in oklab, var(--p-n-950) 9%, transparent),
+            0 1px 3px color-mix(in oklab, var(--p-n-950) 12%, transparent);
+
+  --focus-ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--primary);
+}
+
+/* Dark: same roles, re-pointed. Lightness, not hue, carries the inversion. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface: var(--p-n-950);
+    --surface-dim: oklch(0.125 0.008 240);
+    --surface-container-low: oklch(0.185 0.010 240);
+    --surface-container: var(--p-n-900);
+    --surface-container-high: var(--p-n-850);
+    --on-surface: oklch(0.945 0.006 240);
+    --on-surface-variant: var(--p-n-400);
+    --outline: var(--p-n-700);
+    --outline-variant: var(--p-n-800);
+
+    --primary: var(--p-cyan-300);
+    --on-primary: oklch(0.195 0.030 207);
+    --primary-container: var(--p-cyan-900);
+    --on-primary-container: var(--p-cyan-100);
+    --secondary: var(--p-violet-300);
+    --on-secondary: oklch(0.20 0.06 293);
+    --secondary-container: oklch(0.32 0.09 293);
+
+    --ok: var(--p-green-500);
+    --ok-container: oklch(0.28 0.07 152);
+    --warn: var(--p-amber-500);
+    --warn-container: oklch(0.30 0.07 78);
+    --bad: var(--p-red-500);
+    --bad-container: oklch(0.30 0.08 25);
+
+    --elev-1: 0 1px 2px rgba(0, 0, 0, 0.5), 0 1px 3px 1px rgba(0, 0, 0, 0.35);
+    --elev-2: 0 1px 2px rgba(0, 0, 0, 0.55), 0 2px 6px 2px rgba(0, 0, 0, 0.42);
+    --elev-3: 0 4px 8px 3px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.55);
+  }
+}
+
+/* Explicit choice wins over the OS either way. */
+:root[data-theme="dark"] {
+  --surface: var(--p-n-950);
+  --surface-dim: oklch(0.125 0.008 240);
+  --surface-container-low: oklch(0.185 0.010 240);
+  --surface-container: var(--p-n-900);
+  --surface-container-high: var(--p-n-850);
+  --on-surface: oklch(0.945 0.006 240);
+  --on-surface-variant: var(--p-n-400);
+  --outline: var(--p-n-700);
+  --outline-variant: var(--p-n-800);
+
+  --primary: var(--p-cyan-300);
+  --on-primary: oklch(0.195 0.030 207);
+  --primary-container: var(--p-cyan-900);
+  --on-primary-container: var(--p-cyan-100);
+  --secondary: var(--p-violet-300);
+  --on-secondary: oklch(0.20 0.06 293);
+  --secondary-container: oklch(0.32 0.09 293);
+
+  --ok: var(--p-green-500);
+  --ok-container: oklch(0.28 0.07 152);
+  --warn: var(--p-amber-500);
+  --warn-container: oklch(0.30 0.07 78);
+  --bad: var(--p-red-500);
+  --bad-container: oklch(0.30 0.08 25);
+
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.5), 0 1px 3px 1px rgba(0, 0, 0, 0.35);
+  --elev-2: 0 1px 2px rgba(0, 0, 0, 0.55), 0 2px 6px 2px rgba(0, 0, 0, 0.42);
+  --elev-3: 0 4px 8px 3px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+
+/* --------------------------------------------------------------------------
+   LEVEL 3 — component tokens
+   -------------------------------------------------------------------------- */
+:root {
+  --card-bg: var(--surface-container-low);
+  --card-border: var(--outline-variant);
+  --card-radius: var(--shape-lg);
+  --card-pad: var(--sp-6);
+  --card-shadow: var(--elev-1);
+
+  --btn-radius: var(--shape-full);
+  --btn-pad-y: 10px;
+  --btn-pad-x: var(--sp-5);
+  --btn-fg: var(--on-surface);
+  --btn-bg: transparent;
+
+  --field-bg: var(--surface-container);
+  --field-border: var(--outline);
+  --field-radius: var(--shape-sm);
+
+  --code-bg: var(--surface-container);
+  --code-radius: var(--shape-sm);
+
+  --dialog-bg: var(--surface-container-low);
+  --dialog-radius: var(--shape-xl);
+  --dialog-shadow: var(--elev-3);
+
+  --header-bg: color-mix(in oklab, var(--surface) 86%, transparent);
+  --header-border: var(--outline-variant);
+}

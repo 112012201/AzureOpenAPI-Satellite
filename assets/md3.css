@@ -1,0 +1,344 @@
+/* ==========================================================================
+   Material Design 3 component layer.
+
+   This file deliberately does NOT restyle the markup. It maps the role tokens from
+   tokens.css onto the custom-property names the existing layout already consumes
+   (--bg, --fg, --accent, --card, --radius, --shadow, …), and then re-skins the
+   component classes in place.
+
+   Two reasons for that route rather than rewriting the markup:
+
+     1. the shell — announcement bar, cookie dialog, proof-of-work overlay, the
+        three-locale blocks and the legal pages — is markup that carries behaviour
+        and accessibility. Replacing it to change an appearance is how regressions
+        get introduced for no reader-visible gain;
+     2. the page must keep working with JavaScript blocked and in all three
+        languages, which is a property of the existing structure.
+
+   Load order matters and is set in the document head: tokens.css, then app.css (the
+   layout that consumes the variables), then this file (which re-skins the components
+   and adds the MD3 touches app.css has no opinion about).
+   ========================================================================== */
+
+/* --- role mapping: point the legacy variable names at MD3 roles ----------- */
+:root {
+  --bg: var(--surface);
+  --bg-elev: var(--surface-container-low);
+  --bg-sunken: var(--surface-container);
+  --fg: var(--on-surface);
+  --fg-muted: var(--on-surface-variant);
+  --line: var(--outline-variant);
+
+  --accent: var(--primary);
+  --accent-ink: var(--primary);
+  --accent-soft: color-mix(in oklab, var(--primary) 12%, transparent);
+  --accent-2: var(--secondary);
+  --accent-2-ink: var(--secondary);
+
+  --ok-ink: var(--ok);
+  --ok-soft: color-mix(in oklab, var(--ok) 14%, transparent);
+  --warn-ink: var(--warn);
+  --warn-soft: color-mix(in oklab, var(--warn) 16%, transparent);
+  --bad-ink: var(--bad);
+  --bad-soft: color-mix(in oklab, var(--bad) 14%, transparent);
+
+  --radius: var(--shape-lg);
+  --shadow: var(--elev-1);
+
+  /* Font stacks gain the CJK families each locale actually needs, in the order a
+     reader of that script expects them. */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    "Noto Sans", "Noto Sans SC", "Noto Sans TC", "PingFang SC", "PingFang TC",
+    "Microsoft YaHei", "Microsoft JhengHei", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", "Noto Sans Mono", monospace;
+}
+
+/* --- typography: MD3 roles, applied by element --------------------------- */
+body {
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  line-height: 1.65;
+  background: var(--surface);
+  color: var(--on-surface);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1 {
+  font-size: var(--t-display);
+  font-weight: var(--w-bold);
+  line-height: 1.08;
+  letter-spacing: -0.022em;
+  margin: 0 0 var(--sp-4);
+}
+h2 {
+  font-size: var(--t-headline);
+  font-weight: var(--w-semibold);
+  line-height: 1.18;
+  letter-spacing: -0.014em;
+  margin: var(--sp-12) 0 var(--sp-4);
+}
+h3 {
+  font-size: var(--t-title);
+  font-weight: var(--w-semibold);
+  line-height: 1.25;
+  letter-spacing: -0.008em;
+  margin: var(--sp-6) 0 var(--sp-2);
+}
+p { margin: 0 0 var(--sp-4); }
+a { color: var(--primary); text-underline-offset: 3px; }
+a:hover { color: color-mix(in oklab, var(--primary) 80%, var(--on-surface)); }
+code, kbd, pre, samp { font-family: var(--font-mono); font-size: 0.9em; }
+
+/* A "kicker" line above a heading: MD3 uses a label role for this. */
+.eyebrow,
+.kicker {
+  font-size: var(--t-label);
+  font-weight: var(--w-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--primary);
+  margin: 0 0 var(--sp-2);
+}
+
+/* --- buttons: full-round, three emphases, state layers ------------------ */
+.btn {
+  border-radius: var(--btn-radius);
+  padding: var(--btn-pad-y) var(--btn-pad-x);
+  font-weight: var(--w-medium);
+  font-size: var(--t-label);
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+  transition: background-color var(--dur-short) var(--ease-standard),
+              box-shadow var(--dur-short) var(--ease-standard),
+              border-color var(--dur-short) var(--ease-standard),
+              transform var(--dur-short) var(--ease-standard);
+}
+.btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.btn:active { transform: translateY(1px); }
+
+.btn--primary {
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
+  box-shadow: var(--elev-0);
+}
+.btn--primary:hover {
+  background: color-mix(in oklab, var(--primary) 88%, var(--on-surface));
+  color: var(--on-primary);
+  box-shadow: var(--elev-1);
+}
+.btn--ghost {
+  background: transparent;
+  color: var(--primary);
+  border-color: var(--outline);
+}
+.btn--ghost:hover {
+  background: color-mix(in oklab, var(--primary) 10%, transparent);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.btn--sm { padding: 6px var(--sp-3); font-size: var(--t-caption); }
+
+/* --- cards: low container, hairline outline, edge highlight ------------- */
+.card,
+.legal__cards li,
+.consent__cat {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  /* The 1px inner highlight is the MD3 "edge" cue that separates a container from
+     the surface behind it without a heavier shadow. */
+  position: relative;
+}
+.card::before,
+.legal__cards li::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--on-surface) 6%, transparent);
+  pointer-events: none;
+}
+.card { padding: var(--card-pad); }
+
+/* Feature / card grids become intrinsically responsive rather than breakpoint-driven:
+   a card wraps when it would be narrower than its min, whatever the viewport. */
+.grid,
+.features__grid,
+.legal__cards {
+  display: grid;
+  gap: var(--sp-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+}
+
+/* --- stat-led macrostructure -------------------------------------------- */
+/* The page opens on live service numbers rather than a slogan: the first screen
+   answers "is this up, and what does it carry" before it explains anything. */
+.statled {
+  display: grid;
+  gap: var(--sp-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  margin: var(--sp-6) 0 var(--sp-8);
+}
+.stat {
+  background: var(--surface-container);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--shape-md);
+  padding: var(--sp-4) var(--sp-5);
+  min-width: 0;
+}
+.stat__label {
+  font-size: var(--t-caption);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+  margin: 0 0 var(--sp-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stat__value {
+  font-size: clamp(1.5rem, 1.1rem + 1.4vw, 2.1rem);
+  font-weight: var(--w-bold);
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  margin: 0;
+  color: var(--on-surface);
+}
+.stat__unit { font-size: 0.5em; font-weight: var(--w-medium); color: var(--on-surface-variant); margin-left: 4px; }
+.stat--ok .stat__value { color: var(--ok); }
+.stat--warn .stat__value { color: var(--warn); }
+.stat--bad .stat__value { color: var(--bad); }
+
+/* --- chips -------------------------------------------------------------- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--shape-full);
+  padding: 3px 10px;
+  font-size: var(--t-caption);
+  font-weight: var(--w-medium);
+  border: 1px solid var(--outline);
+  background: var(--surface-container);
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+}
+.chip--ok { border-color: color-mix(in oklab, var(--ok) 40%, transparent); background: var(--ok-container); color: var(--ok); }
+.chip--warn { border-color: color-mix(in oklab, var(--warn) 40%, transparent); background: var(--warn-container); color: var(--warn); }
+.chip--bad { border-color: color-mix(in oklab, var(--bad) 40%, transparent); background: var(--bad-container); color: var(--bad); }
+
+/* --- code surfaces ------------------------------------------------------ */
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--code-radius);
+  padding: var(--sp-4);
+  overflow-x: auto;
+  tab-size: 2;
+}
+:not(pre) > code {
+  background: var(--code-bg);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--shape-xs);
+  padding: 1px 6px;
+}
+.legal__code { background: var(--code-bg); border-color: var(--outline-variant); }
+
+/* --- tables ------------------------------------------------------------- */
+table { border-collapse: collapse; width: 100%; }
+th, td { border-color: var(--outline-variant); }
+th { background: var(--surface-container); font-weight: var(--w-semibold); font-size: var(--t-label); }
+.legal__table th, .legal__table td { border-color: var(--outline-variant); }
+
+/* --- header: MD3 top app bar -------------------------------------------- */
+.site-header {
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--header-border);
+  backdrop-filter: saturate(140%) blur(12px);
+  -webkit-backdrop-filter: saturate(140%) blur(12px);
+}
+.site-header a { color: var(--on-surface-variant); text-decoration: none; }
+.site-header a:hover { color: var(--on-surface); }
+
+/* --- forms -------------------------------------------------------------- */
+input, select, textarea {
+  background: var(--field-bg);
+  border: 1px solid var(--field-border);
+  border-radius: var(--field-radius);
+  color: var(--on-surface);
+  padding: 8px 12px;
+  font: inherit;
+}
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 22%, transparent);
+}
+
+/* --- overlay, dialog, notice: lift onto MD3 surfaces -------------------- */
+.consent__panel {
+  background: var(--dialog-bg);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--dialog-radius);
+  box-shadow: var(--dialog-shadow);
+}
+.consent__note { background: var(--warn-container); color: var(--warn-ink); }
+.boot { background: var(--surface); }
+.announce { border-bottom-color: var(--outline-variant); }
+.legal__notice { background: var(--warn-container); color: var(--warn-ink); border-left-color: var(--warn); }
+
+/* --- loading / boot animation ------------------------------------------- */
+/* Geometric, transform-only, and coupled to real progress: the ring turns, the
+   satellite travels the orbit, and the bar advances on the actual challenge stage.
+   Nothing here animates layout, so it cannot trigger reflow while the page is
+   still settling. */
+.boot__mark svg { display: block; }
+.boot__planet { fill: none; stroke: var(--primary); stroke-width: 2.5; opacity: 0.9; }
+.boot__ring ellipse { fill: none; stroke: var(--primary); stroke-width: 1.6; opacity: 0.4; }
+.boot__sat { fill: var(--primary); }
+.boot__ring { transform-origin: 32px 32px; animation: md3-orbit 3.2s linear infinite; }
+.boot__sat  { transform-origin: 32px 32px; animation: md3-orbit 3.2s linear infinite; }
+.boot__bar { background: var(--surface-container-high); height: 4px; border-radius: var(--shape-full); overflow: hidden; }
+.boot__bar > span { background: var(--primary); transition: transform var(--dur-medium) var(--ease-emphasized); }
+.boot__title { font-size: var(--t-subtitle); font-weight: var(--w-semibold); letter-spacing: -0.01em; }
+.boot__hint { color: var(--on-surface-variant); font-size: var(--t-label); }
+
+@keyframes md3-orbit {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* A determinate progress ring would be better than a bar for a stage-based flow, but
+   the bar is already wired to the challenge stages; this keeps the visual language
+   consistent with MD3's linear progress indicator instead of adding a second one. */
+
+/* --- focus visibility everywhere ---------------------------------------- */
+:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--shape-xs); }
+
+/* --- selection and scrollbar, small MD3 touches ------------------------- */
+::selection { background: color-mix(in oklab, var(--primary) 26%, transparent); }
+* { scrollbar-color: var(--outline) transparent; }
+
+/* --- container queries: adapt to the space a block actually has ---------- */
+@container (max-width: 480px) {
+  .stat { padding: var(--sp-3) var(--sp-4); }
+  .stat__value { font-size: 1.35rem; }
+}
+
+/* --- motion: everything decorative stops on request --------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .boot__ring, .boot__sat { animation: none; }
+  .boot__bar > span { transition: none; }
+  .btn { transition: none; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

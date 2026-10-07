@@ -121,6 +121,8 @@ if (isset($_SERVER['HTTP_CONTENT_TYPE'])) {
 }
 
 define('SATAPI_DISPATCH', true);
+// Capture error responses instead of letting Problem::send() end the process (see run.php).
+define('SATAPI_NO_EXIT', true);
 
 // Expose the emitted status + headers so a harness can assert on the real HTTP
 // contract (the CLI SAPI gives us no other way to read them back).

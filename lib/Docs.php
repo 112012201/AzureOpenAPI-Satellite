@@ -71,6 +71,21 @@ final class Docs
         // Cap's asset overrides must be in the head before the widget loads.
         $html = CapBootstrap::inject($html);
 
+        // Cache-bust the stylesheets and scripts this page loads, for the same reason the
+        // landing page does: they are served immutable for a week, so a fix would not
+        // reach a browser that already holds the previous copy. docs.html is the authored
+        // source, so the rewrite is a targeted replacement of the literal hrefs rather
+        // than a template change.
+        foreach (array('tokens.css', 'app.css', 'md3.css', 'app.js', 'consent.js') as $asset) {
+            $q = \SatApi\HomePage::assetQueryFor($asset);
+            if ($q === '') {
+                continue;
+            }
+            foreach (array('/assets/', './assets/') as $prefix) {
+                $html = str_replace($prefix . $asset . '"', $prefix . $asset . $q . '"', $html);
+            }
+        }
+
         // The shared shell carries the announcement bar, the consent dialog, the
         // proof-of-work overlay and the boot script. It is inserted immediately after
         // <body> so a visitor who blocks JavaScript still sees the notice and can reach

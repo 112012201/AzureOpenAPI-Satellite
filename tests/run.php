@@ -108,6 +108,12 @@ final class T
 
 T::$verbose = $verbose;
 
+// Problem::send() ends the request in production. Under the suite there is no request,
+// and the exit would terminate the whole run at that line -- losing the summary and
+// leaving a status of 0 that reads as success. Test code that exercises an error path
+// therefore needs the response WITHOUT the exit.
+define('SATAPI_NO_EXIT', true);
+
 // Isolate every writable location inside tests/tmp.
 if (is_dir($tmp)) {
     foreach ((array) glob($tmp . '/*') as $path) {

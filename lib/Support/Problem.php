@@ -102,7 +102,17 @@ final class Problem
             ));
         }
 
-        exit;
+        // Stop the request here in production: an error response is the whole answer, and
+        // returning to the caller would let an endpoint append a second one.
+        //
+        // Under a test or CLI dispatch there is no request to end, and exiting kills the
+        // PROCESS -- which is how a test suite loses its summary: one code path reached a
+        // problem response, exit ran, and the run ended at that line with status 0, so it
+        // looked like a pass. SATAPI_NO_EXIT makes that boundary explicit instead of
+        // leaving the suite to be silently truncated.
+        if (!defined('SATAPI_NO_EXIT')) {
+            exit;
+        }
     }
 
     public static function typeBase()

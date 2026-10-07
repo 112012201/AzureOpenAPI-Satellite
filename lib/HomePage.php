@@ -204,7 +204,12 @@ final class HomePage
             '<link rel="alternate icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">',
             '<link rel="apple-touch-icon" href="/apple-touch-icon.png">',
             '<link rel="manifest" href="/site.webmanifest">',
+            // Load order is load-bearing: tokens define the roles, app.css is the layout
+            // that consumes them, md3.css re-skins the components and therefore has to
+            // come last.
+            '<link rel="stylesheet" href="/assets/tokens.css' . self::assetQuery('tokens.css') . '">',
             '<link rel="stylesheet" href="/assets/app.css' . self::assetQuery('app.css') . '">',
+            '<link rel="stylesheet" href="/assets/md3.css' . self::assetQuery('md3.css') . '">',
             // Apply a stored theme before first paint; guarded because storage can
             // throw in private mode.
             '<script>(function(){try{var c=window.localStorage.getItem("satapi-theme");'
