@@ -1265,6 +1265,56 @@ T::truthy(strpos($loaderRules, 'html.boot-entering body') !== false, 'the page h
 T::truthy(strpos($loaderRules, 'html.boot-entering.boot-entered body') !== false, 'the page has a post-fade state');
 T::truthy(strpos($consentJs, 'function enterCrossfade') !== false, 'the script drives the cross-fade');
 T::truthy((bool) preg_match('#void root\\.offsetHeight#', $consentJs), 'a reflow is forced between the two cross-fade classes, or the fade is skipped');
+// Both classes land in the same tick. An attempt to spread them across the fill's duration, to
+// keep the page hidden behind the block, also hid the BLOCK -- the overlay is rendered inside
+// <body>, so `body { opacity: 0 }` takes the overlay out of sight too. The fill then ran
+// invisibly and the screen cut in with no motion: the tile animation appeared to be gone.
+T::truthy(
+    (bool) preg_match('#function enterCrossfade\\(\\) \\{.*?classList\\.add\\(.boot-entering.\\).*?void root\\.offsetHeight;\\s*root\\.classList\\.add\\(.boot-entered.\\);#s', $consentJs),
+    'the cross-fade adds both classes in one tick, as the reference does'
+);
+T::truthy(
+    strpos($consentJs, "'boot-entered')") === false || (bool) preg_match('#setTimeout\\(function \\(\\) \\{\\s*root\\.classList\\.add\\(.boot-entered.#', $consentJs) === false,
+    'the reveal is not deferred behind the fill'
+);
+// The page fade is a transition, not an instant cut, and the overlay fade is the reference's
+// delayed one. Both were changed during the attempt and are asserted here so a revert cannot
+// silently leave the cut in place.
+T::truthy(
+    (bool) preg_match('#html\\.boot-entering\\.boot-entered body \\{[^}]*opacity: 1;[^}]*transition: opacity 400ms cubic-bezier\\(0, 0, 0\\.58, 1\\)#s', $loaderRules),
+    'the page cross-fades over 400ms rather than cutting in'
+);
+T::truthy(
+    (bool) preg_match('#\\.boot--done \\{[^}]*transition: opacity 400ms cubic-bezier\\(0, 0, 0\\.58, 1\\) 500ms#s', $loaderRules),
+    'the overlay fade is delayed 500ms after the fill, as the reference does'
+);
+// A rule that hides the whole body cannot be used here: it hides the overlay with it.
+T::truthy(
+    (bool) preg_match('#html\\.boot-entering\\.boot-entered body \\{[^}]*transition: none#s', $loaderRules) === false,
+    'the page is not cut in with transition: none'
+);
+
+// --- the challenge widget is hidden until it is wanted ----------------------
+// Asked for: hidden while loading, shown only when the challenge failed or when loading
+// finished. Hidden by `visibility` rather than `display`, because the element keeps its box and
+// the challenge still has to solve while the screen is up.
+$capRule = '';
+if (preg_match('#\\[data-cap-host\\]\\s*\\{(.*?)\\}#s', $loaderRules, $capMatch)) {
+    $capRule = $capMatch[1];
+}
+T::truthy($capRule !== '', 'the widget host has a rule');
+T::truthy(strpos($capRule, 'visibility: hidden') !== false, 'the widget is hidden by default');
+T::truthy(strpos($capRule, 'opacity: 0') !== false, 'the widget is transparent by default');
+T::truthy(strpos($capRule, 'display: none') === false, 'the widget is NOT display:none, which would collapse the box it solves into');
+T::truthy((bool) preg_match('#\\[data-cap-host\\]\\.is-visible \\{[^}]*visibility: visible#s', $loaderRules), 'a class reveals the widget');
+T::truthy(strpos($consentJs, 'function revealCapHost') !== false, 'the script has one reveal path');
+// The three call sites the operator named, plus the no-overlay safety.
+T::truthy((bool) preg_match('#function showOverlayError\\(message\\) \\{.*?revealCapHost\\(\\);#s', $consentJs), 'failure reveals the widget');
+// The file is CRLF and the call sits after the closing brace of the guard, so the pattern allows
+// the rest of that line before the comment block.
+T::truthy((bool) preg_match('#removeChild\\(el\\);[^\\n]*\\n(?:\\s*//[^\\n]*\\n)+\\s*revealCapHost\\(\\);#', $consentJs), 'finished loading reveals the widget');
+T::truthy((bool) preg_match('#function runVerifyPage\\(\\) \\{.*?revealCapHost\\(\\);#s', $consentJs), 'the verify page reveals it at once');
+T::truthy((bool) preg_match('#if \\(!overlay\\(\\)\\) \\{\\s*revealCapHost\\(\\);#s', $consentJs), 'a page with no boot screen still reveals it');
 
 // --- the count still rolls through every integer ----------------------------
 T::truthy((bool) preg_match('#for \\(var v = Math\\.floor\\(bootShown\\) \\+ 1; v <= Math\\.floor\\(next\\); v\\+\\+\\)#', $consentJs), 'the roll paints each integer it crosses');

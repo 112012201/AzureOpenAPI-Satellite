@@ -529,12 +529,31 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
    It used to sit wherever the overlay happened to be in the markup, which put it at
    y=6115px -- far below the fold, next to the page footer, so a visitor who was asked to
    verify could not see the thing asking. Pinned to the lower-left corner where the
-   reference shows its Cap badge. */
+   reference shows its Cap badge.
+ *
+ * Hidden while the loading screen is up, and revealed in exactly two cases: the challenge
+ * failed, or loading finished. Taken out of SIGHT rather than out of the flow -- `visibility`
+ * keeps the element's box, so the widget still lays out and still solves while the screen is up.
+ * `display: none` would collapse the box and give the challenge nothing to render into, and the
+ * whole point is that it works during loading without being shown to a visitor who has nothing
+ * to do with it yet. */
 [data-cap-host] {
   position: fixed;
   left: var(--sp-4);
   bottom: var(--sp-4);
   z-index: 210;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 260ms;
+}
+[data-cap-host].is-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  /* Revealed without delay; hidden only after the fade has run. */
+  transition: opacity 260ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s;
 }
 
 /* --- the fill: start, accelerate, stop, then fade ---------------------- */
@@ -572,32 +591,30 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 }
 
 /*
- * The hand-off, in three steps that must not overlap.
+ * The hand-off, reverted to the cross-fade.
  *
- *   A  the block fills the viewport            (boot-fill, 760ms)
- *   B  the page is made fully opaque UNDER it  (no transition: it is invisible behind the block)
- *   C  the block fades away                    (400ms)
+ * A note on why the previous attempt was wrong, so it is not tried again: the overlay lives
+ * INSIDE <body> (shell.php renders it there), so holding `body { opacity: 0 }` for the length of
+ * the fill takes the overlay out of sight along with the page. The fill still ran -- scaleX went
+ * 0 to 1 over 760ms -- but nothing could be seen doing it, and `transition: none` then cut the
+ * page in with no motion at all. That is the "the tile animation just vanished" report, and it was
+ * a structural mistake, not a timing one: a rule that hides the page cannot help but hide the
+ * overlay drawn on top of it.
  *
- * The order is the whole point, and getting it wrong is what produced the bright wash the
- * operator reported. The measurement that showed it: at t=5792ms the block was still at
- * scaleX 0.00 while the page had already reached opacity 0.069, and by t=6177ms the page was
- * fully opaque with the block only 61% across. The page was being revealed THROUGH a
- * semi-transparent coloured block, so the white body behind it showed through and the screen
- * washed out before settling.
- *
- * There is no cross-fade to get wrong now: the page never fades, because a fade is what put
- * two semi-transparent layers on top of each other. It is set opaque while hidden and the
- * block alone fades.
+ * The reference does it this way: overlay and page cross-fade over the same window, and the fill
+ * block stays visible throughout because nothing hides the element it is painted into.
  */
 .boot--done {
   opacity: 0;
-  /* 760ms (the fill) + 24ms of slack, then 400ms of fade. */
-  transition: opacity 400ms cubic-bezier(0, 0, 0.58, 1) 784ms;
+  transition: opacity 400ms cubic-bezier(0, 0, 0.58, 1) 500ms;
 }
-/* Step B: alive, but hidden behind the block. */
+
+/* The page cross-fades in over the same window. */
 html.boot-entering body { opacity: 0; }
-/* Step B: opaque, with no transition, because the block is still covering everything. */
-html.boot-entering.boot-entered body { opacity: 1; transition: none; }
+html.boot-entering.boot-entered body {
+  opacity: 1;
+  transition: opacity 400ms cubic-bezier(0, 0, 0.58, 1);
+}
 
 /* --- sizing only: the axis never changes -------------------------------- */
 @media (orientation: portrait) {

@@ -499,6 +499,24 @@
     caption.textContent = text;
   }
 
+  /**
+   * Show the challenge widget.
+   *
+   * The widget is present and working for the whole of loading, but not shown. It appears in
+   * exactly two cases, which are the two that matter to the visitor:
+   *
+   *   1. the challenge FAILED -- there is something for them to do about it
+   *   2. loading FINISHED     -- the page is theirs, and the badge is part of it
+   *
+   * Anything else means a progress bar with a control underneath it that the visitor is not meant
+   * to touch yet. Hiding rather than removing is deliberate: the challenge still has to solve
+   * while the screen is up, so the element keeps its box.
+   */
+  function revealCapHost() {
+    var host = document.querySelector('[data-cap-host]');
+    if (host) { host.classList.add('is-visible'); }
+  }
+
   function showOverlayError(message) {
     var el = overlay();
     if (el) { el.removeAttribute('hidden'); }
@@ -507,6 +525,8 @@
       if (message) { setCaption(message); }
       box.removeAttribute('hidden');
     }
+    // Case 1: the challenge could not be satisfied, so the visitor needs the control.
+    revealCapHost();
   }
 
   /**
@@ -552,6 +572,10 @@
         }, PHASE_FILL_MS);
         window.setTimeout(function () {
           if (el.parentNode) { el.parentNode.removeChild(el); }
+          // Case 2: loading is finished and the page is in place, so the badge belongs on it.
+          // Revealed here rather than at `boot--done`, because the overlay is still on screen
+          // fading out until this point and the widget sits above it in the stack.
+          revealCapHost();
         }, PHASE_FILL_MS + PHASE_FADE_DELAY_MS + PHASE_FADE_MS);
       });
     }, wait);
@@ -573,27 +597,25 @@
   }
 
   /**
-   * Hide the page, then reveal it once the block has finished crossing.
+   * Mark the document so the page cross-fades in.
    *
-   * The order matters and it is the whole fix. The page is put into its hidden state up front,
-   * while it is still covered by the overlay; when the block has filled the viewport the page is
-   * made opaque with NO transition, because it is invisible behind the block; the block alone
-   * then fades, revealing a page that was already fully in place.
+   * Two classes rather than one so the browser has a style to transition FROM: the starting
+   * state has to be in effect before the ending state is added, or there is nothing to
+   * interpolate.
    *
-   * What this replaces: both fades started together, so the page was revealed through a
-   * partially transparent coloured block and the white body behind it washed the screen out.
-   * Measured before the fix -- at t=5792ms the block was at scaleX 0.00 while the page had
-   * already reached opacity 0.069, and by t=6177ms the page was fully opaque with the block only
-   * 61% across.
+   * The two classes land in the same tick, as the reference does it. An earlier attempt spread
+   * them across the fill's duration to keep the page hidden behind the block -- which also hid
+   * the block, because the overlay is rendered inside <body> and the hidden state applies to
+   * `body`. The fill ran invisibly and the screen then cut in with no motion: the tile animation
+   * appeared to have been removed.
    */
   function enterCrossfade() {
     var root = document.documentElement;
     root.classList.add('boot-entering');
-    // One reflow so the hidden state is in effect before anything else changes.
+    // Force the starting style to take effect. Without this the two class changes land in
+    // the same style recalculation and the fade is skipped.
     void root.offsetHeight;
-    window.setTimeout(function () {
-      root.classList.add('boot-entered');
-    }, PHASE_FILL_MS);
+    root.classList.add('boot-entered');
   }
 
   function bootText(key, fallback) {
@@ -835,6 +857,12 @@
   function initBoot() {
     var pow = boot.pow || {};
 
+    // No overlay means no loading screen to hide behind, so nothing will ever call the reveal at
+    // the end of it. Without this the widget would stay hidden on a page that has no boot screen.
+    if (!overlay()) {
+      revealCapHost();
+    }
+
     // A short, real round trip so the rail reports something that actually happened
     // rather than stepping on a timer. It is deliberately the cheapest endpoint.
     registerBootTask(bootText('boot.preparing', 'Preparing your session'), function () {
@@ -881,6 +909,10 @@
     var retry = document.querySelector('[data-verify-retry]');
     var strings = cfg.strings || {};
     var busy = false;
+
+    // Shown at once on this page: it is the one place the widget IS the content, and there is no
+    // loading screen here to hide it behind.
+    revealCapHost();
 
     function say(message) {
       if (!status || !message) { return; }
