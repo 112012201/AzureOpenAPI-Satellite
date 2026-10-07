@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>API reference · Satellite Data API</title>
+    <meta name="description" content="Interactive OpenAPI 3.1 reference for the Satellite Data API: merged TLE feeds, SatNOGS catalogue, AMSAT status and health endpoints.">
+    <link rel="canonical" href="https://satellite.api.authskin.xyz/docs.html">
+    <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
+
+    <link rel="stylesheet" href="./assets/app.css">
+    <link rel="stylesheet" href="./swagger-ui.css">
+    <link rel="stylesheet" href="./assets/swagger-theme.css">
+
+    <style>
+        /* Minimal fallback chrome so the portal stays usable even if the
+           shared stylesheet fails to load. */
+        body { margin: 0; }
+        .site-header {
+            position: sticky; top: 0; z-index: 40;
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; flex-wrap: wrap;
+            padding: 12px 20px;
+            background: var(--bg-elev, #fff);
+            border-bottom: 1px solid var(--line, #e2e8f0);
+            backdrop-filter: blur(8px);
+        }
+        .site-header a { color: inherit; text-decoration: none; }
+        .site-header .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+        .site-header nav { display: flex; gap: 14px; flex-wrap: wrap; font-size: .92rem; }
+        .site-header nav a { color: var(--fg-muted, #64748b); }
+        .site-header nav a:hover, .site-header nav a[aria-current="page"] { color: var(--accent, #0891b2); }
+        .site-header .actions { display: flex; align-items: center; gap: 8px; }
+        .shell { max-width: 1240px; margin: 0 auto; padding: 18px 20px 80px; }
+        .panel {
+            border: 1px solid var(--line, #e2e8f0); border-radius: 14px;
+            background: var(--bg-elev, #fff); padding: 18px 20px; margin-bottom: 18px;
+        }
+        .panel h1 { margin: 0 0 6px; font-size: 1.35rem; }
+        .panel p { margin: 0 0 10px; color: var(--fg-muted, #64748b); }
+        .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+        .btn {
+            display: inline-flex; align-items: center; gap: 7px;
+            padding: 7px 13px; border-radius: 9px;
+            border: 1px solid var(--line, #e2e8f0);
+            background: var(--bg-elev, #fff); color: inherit;
+            text-decoration: none; font-size: .87rem; cursor: pointer;
+        }
+        .btn:hover { border-color: var(--accent, #0891b2); color: var(--accent, #0891b2); }
+        .btn.primary { background: var(--accent, #0891b2); border-color: transparent; color: #fff; }
+        .btn.primary:hover { color: #fff; filter: brightness(1.08); }
+        .muted { color: var(--fg-muted, #64748b); font-size: .88rem; }
+        .site-footer {
+            border-top: 1px solid var(--line, #e2e8f0);
+            padding: 18px 20px 40px; color: var(--fg-muted, #64748b); font-size: .87rem;
+            display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between;
+            max-width: 1240px; margin: 0 auto;
+        }
+        #swagger-ui .loading { padding: 24px; }
+        .noscript-note {
+            border: 1px solid var(--line, #e2e8f0); border-radius: 12px;
+            padding: 14px 16px; margin-bottom: 16px; background: var(--bg-elev, #fff);
+        }
+    </style>
+</head>
+<body>
+<a class="skip-link sr-only" href="#swagger-ui">Skip to API reference</a>
+
+<header class="site-header">
+    <a class="brand" href="./index.html">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path>
+            <path d="M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"></path>
+        </svg>
+        <span>Satellite Data API</span>
+    </a>
+    <nav aria-label="Primary">
+        <a href="./index.html">Overview</a>
+        <a href="./docs.html" aria-current="page">API reference</a>
+        <a href="./v1/status">Status</a>
+        <a href="./openapi.yaml">OpenAPI YAML</a>
+        <a href="./v1/meta">Metadata</a>
+    </nav>
+    <div class="actions">
+        <button type="button" class="btn" data-theme-toggle aria-label="Toggle colour theme">Theme</button>
+        <a class="btn primary" href="./index.html#quickstart">Quickstart</a>
+    </div>
+</header>
+
+<main class="shell" id="main">
+    <section class="panel">
+        <h1>API reference</h1>
+        <p>
+            OpenAPI 3.1 description of the public API. The same document is served at
+            <a href="./openapi.yaml"><code>/openapi.yaml</code></a> and rendered here by Swagger UI
+            bundled locally (no CDN involved).
+        </p>
+        <p class="muted">
+            Base URL <code>https://satellite.api.authskin.xyz</code> &middot;
+            current version <strong>v1</strong> &middot;
+            the pre-v1 routes (<code>/tle</code>, <code>/health</code>, <code>/amsat/status</code>, &hellip;) are still served and
+            send <code>Deprecation</code> + <code>Link: rel="successor-version"</code> headers.
+        </p>
+        <div class="row">
+            <a class="btn" href="./v1/status">Live status</a>
+            <a class="btn" href="./v1/health">Health JSON</a>
+            <a class="btn" href="./v1/meta">Service metadata</a>
+            <a class="btn" href="./openapi.yaml">Download OpenAPI</a>
+        </div>
+    </section>
+
+    <noscript>
+        <div class="noscript-note">
+            JavaScript is disabled, so the interactive reference cannot render.
+            Fetch the machine-readable description from <a href="./openapi.yaml">/openapi.yaml</a>
+            and read the human version on the <a href="./index.html">overview page</a>.
+        </div>
+    </noscript>
+
+    <div id="swagger-ui">
+        <div class="loading muted">Loading the API description&hellip;</div>
+    </div>
+</main>
+
+<footer class="site-footer">
+    <span>Data: CelesTrak &middot; AMSAT &middot; SatNOGS DB. API code: MIT.</span>
+    <span>
+        <a href="./v1/meta">/v1/meta</a> &middot;
+        <a href="./robots.txt">robots.txt</a> &middot;
+        <a href="./.well-known/security.txt">security.txt</a>
+    </span>
+</footer>
+
+<script src="./swagger-ui-bundle.js" charset="UTF-8"></script>
+<script src="./swagger-ui-standalone-preset.js" charset="UTF-8"></script>
+<script>
+(function () {
+    'use strict';
+
+    function currentTheme() {
+        var attr = document.documentElement.getAttribute('data-theme');
+        if (attr === 'light' || attr === 'dark') { return attr; }
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) { return 'dark'; }
+        return 'light';
+    }
+
+    function mount() {
+        if (typeof SwaggerUIBundle !== 'function') { return; }
+        var container = document.getElementById('swagger-ui');
+        if (container) { container.innerHTML = ''; }
+
+        window.ui = SwaggerUIBundle({
+            url: './openapi.yaml',
+            dom_id: '#swagger-ui',
+            deepLinking: true,
+            docExpansion: 'list',
+            filter: true,
+            defaultModelsExpandDepth: 0,
+            defaultModelExpandDepth: 1,
+            displayRequestDuration: true,
+            displayOperationId: false,
+            tryItOutEnabled: true,
+            persistAuthorization: true,
+            requestSnippetsEnabled: true,
+            requestSnippets: {
+                generators: {
+                    curl_bash: { title: 'cURL (bash)', syntax: 'bash' },
+                    javascript_fetch: { title: 'JavaScript (fetch)', syntax: 'javascript' },
+                    python_requests: { title: 'Python (requests)', syntax: 'python' },
+                    php_curl: { title: 'PHP (cURL)', syntax: 'php' }
+                },
+                defaultExpanded: false,
+                languages: null
+            },
+            syntaxHighlight: {
+                activated: true,
+                theme: currentTheme() === 'dark' ? 'agate' : 'idea'
+            },
+            presets: [
+                SwaggerUIBundle.presets.apis,
+                SwaggerUIStandalonePreset
+            ],
+            plugins: [
+                SwaggerUIBundle.plugins.DownloadUrl
+            ],
+            layout: 'StandaloneLayout',
+            onComplete: function () {
+                document.documentElement.setAttribute('data-api-docs', 'ready');
+            },
+            onLoadingFailure: function () { /* handled by the fallback below */ }
+        });
+    }
+
+    function mountWithFallback() {
+        try {
+            mount();
+        } catch (error) {
+            showFallback();
+        }
+        // If the spec could not be loaded, Swagger UI leaves the container empty.
+        window.setTimeout(function () {
+            var container = document.getElementById('swagger-ui');
+            if (container && container.querySelectorAll('.opblock, .info').length === 0) {
+                showFallback();
+            }
+        }, 6000);
+    }
+
+    function showFallback() {
+        var container = document.getElementById('swagger-ui');
+        if (!container || container.getAttribute('data-fallback') === '1') { return; }
+        container.setAttribute('data-fallback', '1');
+        container.innerHTML =
+            '<div class="panel"><h1>Reference unavailable</h1>' +
+            '<p>The interactive reference could not be rendered in this browser.</p>' +
+            '<p class="muted">The machine-readable OpenAPI 3.1 document is always available at ' +
+            '<a href="./openapi.yaml">/openapi.yaml</a>, and the status of every dependency is on ' +
+            '<a href="./v1/status">/v1/status</a>.</p></div>';
+    }
+
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        window.setTimeout(mountWithFallback, 0);
+    } else {
+        document.addEventListener('DOMContentLoaded', mountWithFallback);
+    }
+
+    // Re-mount when the theme changes so the syntax highlighting theme follows.
+    var lastTheme = currentTheme();
+    var observer = new MutationObserver(function () {
+        var theme = currentTheme();
+        if (theme !== lastTheme) {
+            lastTheme = theme;
+            window.setTimeout(mountWithFallback, 0);
+        }
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+})();
+</script>
+<script src="./assets/app.js" defer></script>
+</body>
+</html>

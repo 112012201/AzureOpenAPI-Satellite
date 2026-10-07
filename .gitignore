@@ -1,0 +1,16 @@
+# Runtime state: never commit cached data, logs, metrics or secrets.
+data/cache/
+data/ratelimit/
+data/*.json
+data/.maintenance_*
+logs/*.log
+logs/*.log.[0-9]
+tests/tmp/
+
+# Local configuration and secrets
+conf/config.php
+.env
+
+# Packaged artefacts
+*.tar.gz
+*.zip

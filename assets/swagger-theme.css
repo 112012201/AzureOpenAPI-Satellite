@@ -1,0 +1,281 @@
+/* ==========================================================================
+   Swagger UI 5.x theme for the Satellite Data API docs portal.
+   Loaded after swagger-ui.css and after assets/app.css.
+   Phases: 1) chrome  2) light tokens  3) dark tokens  4) layout tweaks
+   ========================================================================== */
+
+/* ---------- 1. chrome ---------- */
+.swagger-ui {
+    font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans SC", "Microsoft YaHei", sans-serif);
+}
+
+/* The stock Swagger topbar is replaced by the portal header. */
+.swagger-ui .topbar {
+    display: none;
+}
+
+.docs-shell {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 18px 20px 80px;
+}
+
+.docs-intro {
+    border: 1px solid var(--line);
+    border-radius: var(--radius, 14px);
+    background: var(--bg-elev);
+    padding: 18px 20px;
+    margin-bottom: 18px;
+}
+
+.docs-intro h1 {
+    margin: 0 0 6px;
+    font-size: 1.35rem;
+}
+
+.docs-intro p {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: 0.94rem;
+}
+
+.docs-intro .docs-links {
+    margin-top: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+/* ---------- 2. light tokens ---------- */
+.swagger-ui {
+    --sw-bg: var(--bg-elev, #ffffff);
+    --sw-fg: var(--fg, #0f172a);
+    --sw-muted: var(--fg-muted, #64748b);
+    --sw-line: var(--line, #e2e8f0);
+    --sw-accent: var(--accent, #0891b2);
+    --sw-code-bg: color-mix(in srgb, var(--fg, #0f172a) 6%, transparent);
+    color: var(--sw-fg);
+}
+
+.swagger-ui .info .title,
+.swagger-ui .info .title small,
+.swagger-ui .opblock-tag,
+.swagger-ui .model-title,
+.swagger-ui .responses-inner h4,
+.swagger-ui .responses-inner h5,
+.swagger-ui table thead tr th,
+.swagger-ui .parameter__name,
+.swagger-ui .model,
+.swagger-ui .prop-type {
+    color: var(--sw-fg);
+}
+
+.swagger-ui .info .title small.version-stamp {
+    background: var(--sw-accent);
+}
+
+.swagger-ui .info,
+.swagger-ui .scheme-container,
+.swagger-ui .opblock-tag-section,
+.swagger-ui .models {
+    background: transparent;
+}
+
+.swagger-ui .scheme-container {
+    background: var(--sw-bg);
+    border: 1px solid var(--sw-line);
+    border-radius: 12px;
+    box-shadow: none;
+    padding: 14px 16px;
+    margin: 0 0 18px;
+}
+
+.swagger-ui select,
+.swagger-ui input[type=text],
+.swagger-ui input[type=email],
+.swagger-ui input[type=password],
+.swagger-ui textarea {
+    background: var(--sw-bg);
+    color: var(--sw-fg);
+    border: 1px solid var(--sw-line);
+    border-radius: 8px;
+}
+
+.swagger-ui .btn {
+    border-radius: 8px;
+    border-color: var(--sw-line);
+    color: var(--sw-fg);
+    background: var(--sw-bg);
+}
+
+.swagger-ui .btn.authorize {
+    border-color: var(--sw-accent);
+    color: var(--sw-accent);
+}
+
+.swagger-ui .btn.authorize svg {
+    fill: var(--sw-accent);
+}
+
+.swagger-ui .opblock {
+    border-radius: 12px;
+    box-shadow: none;
+}
+
+.swagger-ui .opblock .opblock-summary {
+    border-radius: 12px;
+}
+
+.swagger-ui .opblock.opblock-get {
+    border-color: color-mix(in srgb, var(--ok, #16a34a) 45%, var(--sw-line));
+    background: color-mix(in srgb, var(--ok, #16a34a) 7%, transparent);
+}
+
+.swagger-ui .opblock.opblock-get .opblock-summary-method {
+    background: var(--ok, #16a34a);
+}
+
+.swagger-ui .opblock.opblock-post {
+    border-color: color-mix(in srgb, var(--accent-2, #7c3aed) 45%, var(--sw-line));
+    background: color-mix(in srgb, var(--accent-2, #7c3aed) 7%, transparent);
+}
+
+.swagger-ui .opblock.opblock-post .opblock-summary-method {
+    background: var(--accent-2, #7c3aed);
+}
+
+.swagger-ui .opblock.opblock-deprecated {
+    opacity: 0.72;
+}
+
+.swagger-ui .opblock .opblock-summary-description,
+.swagger-ui .parameter__type,
+.swagger-ui .prop-format,
+.swagger-ui .response-col_description__inner div.markdown p,
+.swagger-ui .markdown p,
+.swagger-ui .renderedMarkdown p {
+    color: var(--sw-muted);
+}
+
+.swagger-ui .model-box,
+.swagger-ui .model-example,
+.swagger-ui .highlight-code,
+.swagger-ui .microlight,
+.swagger-ui .responses-table .response,
+.swagger-ui .response-col_links {
+    background: transparent;
+}
+
+.swagger-ui .highlight-code > .microlight,
+.swagger-ui pre.microlight,
+.swagger-ui .model-example .model-box {
+    background: var(--sw-code-bg);
+    border-radius: 10px;
+}
+
+.swagger-ui table tbody tr td {
+    border-color: var(--sw-line);
+}
+
+.swagger-ui .opblock-description-wrapper p,
+.swagger-ui .opblock-external-docs-wrapper p,
+.swagger-ui .opblock-title_normal p {
+    color: var(--sw-muted);
+}
+
+.swagger-ui .tab li button.tablinks {
+    color: var(--sw-muted);
+}
+
+.swagger-ui .tab li.active button.tablinks {
+    color: var(--sw-accent);
+}
+
+.swagger-ui section.models {
+    border: 1px solid var(--sw-line);
+    border-radius: 12px;
+}
+
+.swagger-ui section.models .model-container {
+    background: transparent;
+}
+
+.swagger-ui .dialog-ux .modal-ux {
+    background: var(--sw-bg);
+    border-radius: 14px;
+    border: 1px solid var(--sw-line);
+}
+
+.swagger-ui .dialog-ux .modal-ux-header h3,
+.swagger-ui .dialog-ux .modal-ux-content h4,
+.swagger-ui .dialog-ux .modal-ux-content p {
+    color: var(--sw-fg);
+}
+
+/* ---------- 3. dark tokens ---------- */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .swagger-ui {
+        --sw-bg: #0f172a;
+        --sw-fg: #e2e8f0;
+        --sw-muted: #94a3b8;
+        --sw-line: #1e293b;
+        --sw-code-bg: rgba(148, 163, 184, 0.14);
+    }
+}
+
+:root[data-theme="dark"] .swagger-ui {
+    --sw-bg: #0f172a;
+    --sw-fg: #e2e8f0;
+    --sw-muted: #94a3b8;
+    --sw-line: #1e293b;
+    --sw-code-bg: rgba(148, 163, 184, 0.14);
+}
+
+:root[data-theme="dark"] .swagger-ui .opblock-summary-description,
+:root[data-theme="dark"] .swagger-ui .markdown code,
+:root[data-theme="dark"] .swagger-ui .renderedMarkdown code {
+    color: #cbd5f5;
+}
+
+:root[data-theme="dark"] .swagger-ui .microlight,
+:root[data-theme="dark"] .swagger-ui .microlight code,
+:root[data-theme="dark"] .swagger-ui .microlight .token.string {
+    color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .swagger-ui .token.property,
+:root[data-theme="dark"] .swagger-ui .token.number {
+    color: #7dd3fc;
+}
+
+:root[data-theme="dark"] .swagger-ui .token.string {
+    color: #86efac;
+}
+
+:root[data-theme="dark"] .swagger-ui .token.punctuation {
+    color: #94a3b8;
+}
+
+/* ---------- 4. layout tweaks ---------- */
+@media (max-width: 720px) {
+    .docs-shell {
+        padding: 12px 12px 60px;
+    }
+
+    .swagger-ui .opblock .opblock-summary {
+        flex-wrap: wrap;
+    }
+
+    .swagger-ui .opblock-summary-path {
+        max-width: 100%;
+        word-break: break-all;
+    }
+}
+
+@media print {
+    .site-header,
+    .site-footer,
+    .docs-intro .docs-links {
+        display: none;
+    }
+}

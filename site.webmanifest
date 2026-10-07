@@ -1,0 +1,22 @@
+{
+    "name": "Satellite Data API",
+    "short_name": "SatAPI",
+    "description": "Unified TLE and satellite metadata for CelesTrak, AMSAT and SatNOGS.",
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "background_color": "#0b1120",
+    "theme_color": "#0891b2",
+    "icons": [
+        {
+            "src": "/favicon-32x32.png",
+            "sizes": "32x32",
+            "type": "image/png"
+        },
+        {
+            "src": "/favicon-16x16.png",
+            "sizes": "16x16",
+            "type": "image/png"
+        }
+    ]
+}

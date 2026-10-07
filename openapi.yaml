@@ -1,0 +1,2188 @@
+# =============================================================================
+# Satellite Data API - OpenAPI 3.1 description
+#
+# Rewritten PHP proxy in front of CelesTrak, AMSAT and SatNOGS. Covers the /v1
+# API, the system and health endpoints, the admin maintenance API and the
+# deprecated pre-v1 surface (whose historical script names such as
+# /tle_merge.php, /tle_weather.php and /health.php still resolve).
+#
+# Docs: /docs.html  |  Status dashboard: /v1/status  |  Health: /v1/health
+# =============================================================================
+openapi: 3.1.0
+
+info:
+  title: Satellite Data API
+  version: 2.2.0
+  summary: Unified TLE and satellite metadata proxy.
+  description: |
+    Unified TLE and satellite metadata proxy (CelesTrak, AMSAT, SatNOGS).
+
+    The service fetches, normalises, merges and caches upstream catalogue
+    documents and republishes them over a stable `v1` HTTP surface.
+    Documentation: [/docs.html](/docs.html). Status dashboard:
+    [/v1/status](/v1/status). Machine-readable health: [/v1/health](/v1/health).
+
+    ## Response envelope
+
+    Every `/v1` JSON response uses one envelope: `{"meta": {...}, "data": ...}`.
+    `meta` always carries `service`, `version`, `api_version` (`"v1"`),
+    `generated` (RFC 3339 UTC), `request_id` and `elapsed_ms`. Endpoints add the
+    extras that apply to them: `count`, `total`, `sources`, `source`, `cache`
+    (`status`, `age_seconds`, `ttl`), `pagination` (`page`, `per_page`, `total`,
+    `total_pages`, `has_more`, `next`) and `warnings`. Two legacy payloads are
+    deliberately flat instead (see the `Legacy` tag).
+
+    ## Problem responses
+
+    Errors are RFC 9457 problem details served as `application/problem+json`.
+    Required members: `type`, `title`, `status`, `detail`, `code`, `instance`,
+    `request_id`. Optional extras: `sources` (per-upstream outcome),
+    `parameter`, `allow`, `hint`, `maintenance`
+    (`endpoint`, `retry_after`, `until`) and `rate_limit` (`limit`, `remaining`,
+    `reset`).
+
+    Error codes: `bad_request`, `not_found`, `method_not_allowed`,
+    `maintenance`, `upstream_unavailable`, `rate_limited`, `payload_too_large`,
+    `unauthorized`, `internal_error`.
+
+    ## Headers, caching and limits
+
+    Responses carry `ETag`, `Last-Modified`, `Cache-Control`, `X-Cache-Status`
+    (`HIT` | `MISS` | `STALE`), `X-Cache-Age`, `X-Cache-TTL`, `X-Cache-Backend`,
+    `X-Request-Id` and `X-Service-Version`. Throttled responses add `Retry-After`
+    and `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset`;
+    paginated responses add `Link`; deprecated routes add `Deprecation`,
+    `Sunset` and a `Link` with `rel="successor-version"`.
+
+    Upstream documents are cached server-side (Redis when the extension is
+    loaded, otherwise files in the configured cache directory). Send
+    `If-None-Match` with a previously returned `ETag` to receive `304 Not
+    Modified`; while a document is revalidated the stale copy is still served
+    with `X-Cache-Status: STALE`.
+
+    ## Authentication
+
+    All read endpoints are public. Only `POST /v1/maintenance` requires the
+    administrator bearer token; when no token is configured that route answers
+    `503`.
+  contact:
+    name: Libre Space Community
+    url: https://community.libre.space/
+  x-homepage: https://satellite.api.authskin.xyz
+  x-documentation: /docs.html
+  x-status-page: /v1/status
+
+externalDocs:
+  description: Human-readable API documentation
+  url: https://satellite.api.authskin.xyz/docs.html
+
+servers:
+  - url: https://satellite.api.authskin.xyz
+    description: Tencent Cloud EdgeOne accelerated (recommended)
+  - url: https://satellite.authskin.xyz
+    description: Direct origin
+
+tags:
+  - name: TLE
+    description: |
+      Merged and per-source two-line element sets from CelesTrak Weather,
+      CelesTrak Amateur, AMSAT and SatNOGS. The merged feed is de-duplicated by
+      NORAD id, keeping the record with the newest epoch.
+  - name: Catalogue
+    description: |
+      SatNOGS satellite and transmitter metadata, paginated and projected
+      server-side because the upstream transmitter document is about 4 MB.
+  - name: AMSAT
+    description: AMSAT live status reports.
+  - name: System
+    description: |
+      Service metadata, health, readiness, liveness, the HTML dashboard and the
+      per-endpoint maintenance state.
+  - name: Legacy
+    description: |
+      Deprecated pre-v1 surface. Every operation here is `deprecated: true` and
+      sends a `Link` header with `rel="successor-version"` pointing at its `/v1`
+      equivalent. The historical script file names still resolve as well:
+      `/tle_merge.php`, `/tle_weather.php`, `/tle_amateur.php`,
+      `/tle_amsat.php`, `/tle_satnogs.php`, `/satnogs_satellites_proxy.php`,
+      `/satnogs_transmitters_proxy.php`, `/amsat_status_proxy.php`,
+      `/health.php`. New clients must use the `/v1` paths.
+
+security: []
+
+paths:
+
+  # ---------------------------------------------------------------------------
+  # TLE
+  # ---------------------------------------------------------------------------
+  /v1/tle:
+    get:
+      operationId: getMergedTle
+      summary: Merged de-duplicated TLE feed
+      description: |
+        Merged TLE feed built from CelesTrak Weather, CelesTrak Amateur, AMSAT
+        and SatNOGS. Records are de-duplicated by NORAD id and the copy with the
+        newest epoch wins.
+
+        `format=tle` (default) returns classical 20-column TLE text: three lines
+        per satellite (name line, line 1, line 2) preceded by a `#` comment
+        header block, which `meta=false` / `include_meta=false` removes.
+        `format=json` returns the envelope whose `data` is an array of
+        `TleRecord`. Conditional requests are supported (`If-None-Match` yields
+        `304`), and while the merged document is rebuilt the previous copy is
+        still served with `X-Cache-Status: STALE`.
+      tags: [TLE]
+      x-endpoint-id: tle_merge
+      x-cache-ttl: 3600
+      parameters:
+        - $ref: '#/components/parameters/GroupParam'
+        - $ref: '#/components/parameters/FormatParam'
+        - $ref: '#/components/parameters/NoradParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/MetaParam'
+        - $ref: '#/components/parameters/IncludeMetaParam'
+        - $ref: '#/components/parameters/PrettyParam'
+      responses:
+        '200':
+          description: Merged feed as TLE text (default) or as a JSON envelope.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Last-Modified: { $ref: '#/components/headers/LastModified' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Cache-Age: { $ref: '#/components/headers/XCacheAge' }
+            X-Cache-TTL: { $ref: '#/components/headers/XCacheTTL' }
+            X-Cache-Backend: { $ref: '#/components/headers/XCacheBackend' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+            X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+            X-RateLimit-Limit: { $ref: '#/components/headers/XRateLimitLimit' }
+            X-RateLimit-Remaining: { $ref: '#/components/headers/XRateLimitRemaining' }
+            X-RateLimit-Reset: { $ref: '#/components/headers/XRateLimitReset' }
+          content:
+            text/plain:
+              schema: { type: string }
+              examples:
+                merged: { $ref: '#/components/examples/MergedTleText' }
+            application/json:
+              schema: { $ref: '#/components/schemas/TleEnvelope' }
+              examples:
+                merged: { $ref: '#/components/examples/MergedTleJson' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /v1/tle/{source}:
+    get:
+      operationId: getTleBySource
+      summary: TLE feed from a single upstream source
+      description: |
+        Records of exactly one upstream document, without merging or
+        de-duplication. The `source` segment selects the upstream and maps to a
+        maintenance endpoint id: `weather` -> `tle_weather` (CelesTrak Weather),
+        `amateur` -> `tle_amateur` (CelesTrak Amateur), `amsat` -> `tle_amsat`,
+        `satnogs` -> `tle_satnogs`. Query parameters are the same as `/v1/tle`
+        except `group`, which does not apply. An unsupported `source` yields
+        `404`.
+      tags: [TLE]
+      x-endpoint-ids: [tle_weather, tle_amateur, tle_amsat, tle_satnogs]
+      x-cache-ttl: 3600
+      parameters:
+        - $ref: '#/components/parameters/SourceParam'
+        - $ref: '#/components/parameters/FormatParam'
+        - $ref: '#/components/parameters/NoradParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/MetaParam'
+        - $ref: '#/components/parameters/IncludeMetaParam'
+        - $ref: '#/components/parameters/PrettyParam'
+      responses:
+        '200':
+          description: Records of one upstream document, as TLE text or JSON.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Last-Modified: { $ref: '#/components/headers/LastModified' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Cache-Age: { $ref: '#/components/headers/XCacheAge' }
+            X-Cache-TTL: { $ref: '#/components/headers/XCacheTTL' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+            X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+          content:
+            text/plain:
+              schema: { type: string }
+              examples:
+                amateur: { $ref: '#/components/examples/SingleSourceTleText' }
+            application/json:
+              schema: { $ref: '#/components/schemas/TleEnvelope' }
+              examples:
+                amateur: { $ref: '#/components/examples/MergedTleJson' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  # ---------------------------------------------------------------------------
+  # Catalogue
+  # ---------------------------------------------------------------------------
+  /v1/satellites:
+    get:
+      operationId: listSatellites
+      summary: SatNOGS satellite metadata
+      description: |
+        SatNOGS satellite metadata, cached for 6 hours. Data rows mirror the
+        upstream SatNOGS satellite object. The projection defaults to
+        `sat_id,norad_cat_id,name,names,status,launched,operator,countries,updated`;
+        change it with `fields` and use `fields=all` for every upstream field.
+        `all=true` returns the whole list and ignores pagination.
+      tags: [Catalogue]
+      x-endpoint-id: satnogs_satellites
+      x-cache-ttl: 21600
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - $ref: '#/components/parameters/AllParam'
+        - $ref: '#/components/parameters/FieldsParam'
+        - $ref: '#/components/parameters/NoradCatIdParam'
+        - $ref: '#/components/parameters/SatIdParam'
+        - $ref: '#/components/parameters/SatelliteStatusParam'
+        - $ref: '#/components/parameters/OperatorParam'
+        - $ref: '#/components/parameters/SatelliteSearchParam'
+        - $ref: '#/components/parameters/SinceParam'
+        - $ref: '#/components/parameters/SortParam'
+        - $ref: '#/components/parameters/OrderParam'
+      responses:
+        '200':
+          description: A page of SatNOGS satellite objects.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Last-Modified: { $ref: '#/components/headers/LastModified' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Cache-Age: { $ref: '#/components/headers/XCacheAge' }
+            X-Cache-TTL: { $ref: '#/components/headers/XCacheTTL' }
+            Link: { $ref: '#/components/headers/Link' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+            X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SatelliteEnvelope' }
+              examples:
+                firstPage: { $ref: '#/components/examples/SatellitesPage' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /v1/transmitters:
+    get:
+      operationId: listTransmitters
+      summary: SatNOGS transmitter metadata
+      description: |
+        SatNOGS transmitter metadata, cached for 6 hours. The upstream document
+        is about 4 MB, so this endpoint is always paginated and projected. The
+        projection defaults to
+        `uuid,norad_cat_id,description,mode,baud,type,status,alive,uplink_low,downlink_low,updated`;
+        change it with `fields` and use `fields=all` for every upstream field.
+        `all=true` ignores pagination.
+      tags: [Catalogue]
+      x-endpoint-id: satnogs_transmitters
+      x-cache-ttl: 21600
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - $ref: '#/components/parameters/AllParam'
+        - $ref: '#/components/parameters/FieldsParam'
+        - $ref: '#/components/parameters/NoradCatIdParam'
+        - $ref: '#/components/parameters/UuidParam'
+        - $ref: '#/components/parameters/SatIdParam'
+        - $ref: '#/components/parameters/ModeParam'
+        - $ref: '#/components/parameters/TransmitterStatusParam'
+        - $ref: '#/components/parameters/TypeParam'
+        - $ref: '#/components/parameters/AliveParam'
+        - $ref: '#/components/parameters/TransmitterSearchParam'
+        - $ref: '#/components/parameters/SinceParam'
+        - $ref: '#/components/parameters/SortParam'
+        - $ref: '#/components/parameters/OrderParam'
+      responses:
+        '200':
+          description: A page of SatNOGS transmitter objects.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Last-Modified: { $ref: '#/components/headers/LastModified' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Cache-Age: { $ref: '#/components/headers/XCacheAge' }
+            X-Cache-TTL: { $ref: '#/components/headers/XCacheTTL' }
+            Link: { $ref: '#/components/headers/Link' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+            X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TransmitterEnvelope' }
+              examples:
+                firstPage: { $ref: '#/components/examples/TransmittersPage' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  # ---------------------------------------------------------------------------
+  # AMSAT
+  # ---------------------------------------------------------------------------
+  /v1/amsat/status:
+    get:
+      operationId: listAmsatStatus
+      summary: AMSAT live status reports
+      description: |
+        AMSAT live status reports, cached for 1 hour. A report records that a
+        station heard, or did not hear, a satellite from a grid square.
+        Timestamps are normalised to RFC 3339 UTC and also exposed as unix
+        seconds in `timestamp_unix`.
+      tags: [AMSAT]
+      x-endpoint-id: amsat_status
+      x-cache-ttl: 3600
+      parameters:
+        - $ref: '#/components/parameters/AmsatSatelliteParam'
+        - $ref: '#/components/parameters/CallsignParam'
+        - $ref: '#/components/parameters/AmsatStatusParam'
+        - $ref: '#/components/parameters/SinceParam'
+        - $ref: '#/components/parameters/UntilParam'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - $ref: '#/components/parameters/AllParam'
+      responses:
+        '200':
+          description: A page of AMSAT live status reports.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Last-Modified: { $ref: '#/components/headers/LastModified' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Cache-Age: { $ref: '#/components/headers/XCacheAge' }
+            X-Cache-TTL: { $ref: '#/components/headers/XCacheTTL' }
+            Link: { $ref: '#/components/headers/Link' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+            X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AmsatEnvelope' }
+              examples:
+                firstPage: { $ref: '#/components/examples/AmsatStatusPage' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  # ---------------------------------------------------------------------------
+  # System
+  # ---------------------------------------------------------------------------
+  /v1/meta:
+    get:
+      operationId: getServiceMeta
+      summary: Service metadata and error catalogue
+      description: |
+        Self-describing service metadata, cached for 5 minutes: the endpoint
+        list, the upstream `sources` (id, label, url, cache_ttl, parser,
+        attribution), the enforced `limits`, the complete `errors` catalogue,
+        the active `cache_backend`, the current `maintenance` states and the
+        service `links`.
+      tags: [System]
+      x-endpoint-id: meta
+      parameters: []
+      x-cache-ttl: 300
+      responses:
+        '200':
+          description: The service metadata document.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Last-Modified: { $ref: '#/components/headers/LastModified' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Cache-Age: { $ref: '#/components/headers/XCacheAge' }
+            X-Cache-TTL: { $ref: '#/components/headers/XCacheTTL' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+            X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MetaEnvelope' }
+              examples:
+                document: { $ref: '#/components/examples/MetaDocument' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /v1/health:
+    get:
+      operationId: getHealth
+      summary: Aggregate health document
+      description: |
+        Aggregate health of the process, its caches and its upstreams:
+        `status` (`ok` | `degraded`), `overall` (`ok` | `degraded` |
+        `critical`), `timestamp`, `generated`, `service`, `version`,
+        `api_version`, `uptime_seconds`, `checks` (Redis, storage, every tracked
+        cache file, every maintenance state) and `metrics` (totals,
+        per-endpoint and per-upstream counters).
+
+        HTTP `200` is returned for `ok` and `degraded`; HTTP `503` when
+        `overall` is `critical`. `?ui=1` returns the HTML dashboard instead of
+        JSON (the same data as `/v1/status`).
+      tags: [System]
+      x-endpoint-id: health
+      parameters:
+        - $ref: '#/components/parameters/UiParam'
+      responses:
+        '200':
+          description: Health document as JSON, or the HTML dashboard when `ui=1`.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Cache-Backend: { $ref: '#/components/headers/XCacheBackend' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+            X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthDocument' }
+              examples:
+                ok: { $ref: '#/components/examples/HealthOk' }
+                degraded: { $ref: '#/components/examples/HealthDegraded' }
+            text/html:
+              schema: { type: string }
+              examples:
+                dashboard: { $ref: '#/components/examples/HealthDashboard' }
+        '503':
+          description: |
+            `overall` is `critical`: no usable data could be produced. The body is
+            the same health document as for `200` (so monitors can read the same
+            fields from either answer); with `ui=1` the dashboard is rendered.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Health: { $ref: '#/components/headers/XHealth' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+            X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthDocument' }
+              examples:
+                critical: { $ref: '#/components/examples/HealthDegraded' }
+            text/html:
+              schema: { type: string }
+              examples:
+                dashboard: { $ref: '#/components/examples/HealthDashboard' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /v1/health/live:
+    get:
+      operationId: getHealthLive
+      summary: Liveness probe
+      description: |
+        Liveness probe. Always answers `200` while the process is up and able to
+        serve requests; it performs no cache or upstream checks.
+      tags: [System]
+      x-endpoint-id: health
+      parameters: []
+      responses:
+        '200':
+          description: The process is alive.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+            X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthLive' }
+              examples:
+                live: { $ref: '#/components/examples/HealthLive' }
+
+  /v1/health/ready:
+    get:
+      operationId: getHealthReady
+      summary: Readiness probe
+      description: |
+        Readiness probe. Answers `200` when data can be served and `503` when it
+        cannot, reporting `status` (`ok` | `unavailable`), the `check` name
+        `readiness`, `timestamp`, `overall`, the Redis state and every tracked
+        cache as `fresh`, `stale` or `missing`.
+      tags: [System]
+      x-endpoint-id: health
+      parameters: []
+      responses:
+        '200':
+          description: The service is ready to serve data.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+            X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthReady' }
+              examples:
+                ready: { $ref: '#/components/examples/HealthReady' }
+        '503':
+          description: |
+            The service cannot serve data yet. As with `200`, the body is the
+            readiness document - only the status code changes - so a probe can
+            report *why* it is not ready.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Health: { $ref: '#/components/headers/XHealth' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+            X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthReady' }
+              examples:
+                unavailable: { $ref: '#/components/examples/HealthReadyUnavailable' }
+
+  /v1/status:
+    get:
+      operationId: getStatusDashboard
+      summary: HTML status dashboard
+      description: |
+        Human-readable dashboard rendering exactly the data of `/v1/health`:
+        cache ages, Redis and storage state, maintenance windows, metrics and
+        upstream health.
+      tags: [System]
+      x-endpoint-id: health
+      parameters: []
+      responses:
+        '200':
+          description: The HTML status dashboard.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+            X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+          content:
+            text/html:
+              schema: { type: string }
+              examples:
+                dashboard: { $ref: '#/components/examples/HealthDashboard' }
+
+  /v1/maintenance:
+    get:
+      operationId: listMaintenance
+      summary: Per-endpoint maintenance state
+      description: |
+        Current maintenance state of every endpoint. Known ids: `tle_merge`,
+        `tle_weather`, `tle_amateur`, `tle_amsat`, `tle_satnogs`,
+        `satnogs_satellites`, `satnogs_transmitters`, `amsat_status`, `health`.
+        An endpoint in maintenance answers `503` with a `maintenance` problem
+        document carrying `endpoint`, `retry_after` and `until`.
+      tags: [System]
+      x-endpoint-id: health
+      parameters: []
+      responses:
+        '200':
+          description: The maintenance state of every endpoint.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+            X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MaintenanceEnvelope' }
+              examples:
+                states: { $ref: '#/components/examples/MaintenanceList' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+    post:
+      operationId: updateMaintenance
+      summary: Enable or disable maintenance for an endpoint
+      description: |
+        Administrator-only. Sets the maintenance state of one endpoint, or of
+        `all` endpoints, and makes the affected documents stale so the next
+        request revalidates upstream. The bearer token comes from the
+        `SATAPI_ADMIN_TOKEN` environment variable (configuration key
+        `admin.token`). When no token is configured the route answers `503` with
+        an `unauthorized` problem document, because the admin surface is
+        disabled rather than open.
+      tags: [System]
+      x-endpoint-id: health
+      parameters: []
+      security:
+        - adminBearer: []
+      requestBody:
+        required: true
+        description: The maintenance state to apply.
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MaintenanceUpdate' }
+            examples:
+              oneEndpoint: { $ref: '#/components/examples/MaintenanceEnableOne' }
+              allEndpoints: { $ref: '#/components/examples/MaintenanceEnableAll' }
+      responses:
+        '200':
+          description: The maintenance state was applied.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+            X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MaintenanceApplyEnvelope' }
+              examples:
+                applied: { $ref: '#/components/examples/MaintenanceApplied' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/AdminDisabled' }
+
+  # ---------------------------------------------------------------------------
+  # Legacy (deprecated pre-v1 surface)
+  # ---------------------------------------------------------------------------
+  /tle:
+    get:
+      operationId: legacyGetTle
+      summary: '[Deprecated] Merged TLE feed (pre-v1)'
+      description: |
+        Deprecated alias of `/v1/tle`, still served for the historical script
+        names `/tle_merge.php` and `/tle.php`. Returns merged TLE text only; use
+        `/v1/tle` for `format=json`, conditional requests and the envelope.
+      tags: [Legacy]
+      deprecated: true
+      x-endpoint-id: tle_merge
+      x-cache-ttl: 3600
+      parameters:
+        - $ref: '#/components/parameters/GroupParam'
+        - $ref: '#/components/parameters/NoradParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/MetaParam'
+        - $ref: '#/components/parameters/IncludeMetaParam'
+      responses:
+        '200':
+          description: Merged TLE text.
+          headers:
+            Link: { $ref: '#/components/headers/LinkSuccessorVersion' }
+            Deprecation: { $ref: '#/components/headers/Deprecation' }
+            Sunset: { $ref: '#/components/headers/Sunset' }
+            ETag: { $ref: '#/components/headers/ETag' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+          content:
+            text/plain:
+              schema: { type: string }
+              examples:
+                merged: { $ref: '#/components/examples/MergedTleText' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /tle/{source}:
+    get:
+      operationId: legacyGetTleBySource
+      summary: '[Deprecated] Single-source TLE feed (pre-v1)'
+      description: |
+        Deprecated alias of `/v1/tle/{source}`, still served for the historical
+        script names `/tle_weather.php`, `/tle_amateur.php`, `/tle_amsat.php`
+        and `/tle_satnogs.php`.
+      tags: [Legacy]
+      deprecated: true
+      x-endpoint-ids: [tle_weather, tle_amateur, tle_amsat, tle_satnogs]
+      x-cache-ttl: 3600
+      parameters:
+        - $ref: '#/components/parameters/SourceParam'
+        - $ref: '#/components/parameters/NoradParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/MetaParam'
+        - $ref: '#/components/parameters/IncludeMetaParam'
+      responses:
+        '200':
+          description: TLE text of one upstream document.
+          headers:
+            Link: { $ref: '#/components/headers/LinkSuccessorVersion' }
+            Deprecation: { $ref: '#/components/headers/Deprecation' }
+            Sunset: { $ref: '#/components/headers/Sunset' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+          content:
+            text/plain:
+              schema: { type: string }
+              examples:
+                amateur: { $ref: '#/components/examples/SingleSourceTleText' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /satnogs/satellites:
+    get:
+      operationId: legacyListSatellites
+      summary: '[Deprecated] SatNOGS satellites, complete array (pre-v1)'
+      description: |
+        Deprecated alias of `/v1/satellites`, still served for the historical
+        script name `/satnogs_satellites_proxy.php`. Returns the complete
+        upstream array with no pagination, projection or envelope; use
+        `/v1/satellites` instead.
+      tags: [Legacy]
+      deprecated: true
+      x-endpoint-id: satnogs_satellites
+      x-cache-ttl: 21600
+      parameters: []
+      responses:
+        '200':
+          description: The complete upstream SatNOGS satellite array.
+          headers:
+            Link: { $ref: '#/components/headers/LinkSuccessorVersion' }
+            Deprecation: { $ref: '#/components/headers/Deprecation' }
+            Sunset: { $ref: '#/components/headers/Sunset' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Satellite' }
+              examples:
+                complete: { $ref: '#/components/examples/LegacySatelliteArray' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /satnogs/transmitters:
+    get:
+      operationId: legacyListTransmitters
+      summary: '[Deprecated] SatNOGS transmitters, complete array (pre-v1)'
+      description: |
+        Deprecated alias of `/v1/transmitters`, still served for the historical
+        script name `/satnogs_transmitters_proxy.php`. Returns the complete
+        upstream array (about 4 MB) with no pagination or projection; use
+        `/v1/transmitters` instead.
+      tags: [Legacy]
+      deprecated: true
+      x-endpoint-id: satnogs_transmitters
+      x-cache-ttl: 21600
+      parameters: []
+      responses:
+        '200':
+          description: The complete upstream SatNOGS transmitter array.
+          headers:
+            Link: { $ref: '#/components/headers/LinkSuccessorVersion' }
+            Deprecation: { $ref: '#/components/headers/Deprecation' }
+            Sunset: { $ref: '#/components/headers/Sunset' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Transmitter' }
+              examples:
+                complete: { $ref: '#/components/examples/LegacyTransmitterArray' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /amsat/status:
+    get:
+      operationId: legacyListAmsatStatus
+      summary: '[Deprecated] AMSAT status, historical envelope (pre-v1)'
+      description: |
+        Deprecated alias of `/v1/amsat/status`, still served for the historical
+        script name `/amsat_status_proxy.php`. Returns the historical envelope
+        `{status, generated, total_reports, data}` whose `generated` and report
+        `timestamp` values use the PHP `"Y-m-d H:i:s"` format in UTC; use
+        `/v1/amsat/status` for RFC 3339 timestamps in the common envelope.
+      tags: [Legacy]
+      deprecated: true
+      x-endpoint-id: amsat_status
+      x-cache-ttl: 3600
+      parameters:
+        - $ref: '#/components/parameters/AmsatSatelliteParam'
+        - $ref: '#/components/parameters/CallsignParam'
+        - $ref: '#/components/parameters/AmsatStatusParam'
+      responses:
+        '200':
+          description: The historical AMSAT status envelope.
+          headers:
+            Link: { $ref: '#/components/headers/LinkSuccessorVersion' }
+            Deprecation: { $ref: '#/components/headers/Deprecation' }
+            Sunset: { $ref: '#/components/headers/Sunset' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LegacyAmsatEnvelope' }
+              examples:
+                reports: { $ref: '#/components/examples/LegacyAmsatStatus' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /health:
+    get:
+      operationId: legacyGetHealth
+      summary: '[Deprecated] Health document (pre-v1)'
+      description: |
+        Deprecated alias of `/v1/health`, still served for the historical script
+        name `/health.php`. Returns exactly the same JSON document, including
+        the `503` behaviour when `overall` is `critical`.
+      tags: [Legacy]
+      deprecated: true
+      x-endpoint-id: health
+      parameters: []
+      responses:
+        '200':
+          description: The health document.
+          headers:
+            Link: { $ref: '#/components/headers/LinkSuccessorVersion' }
+            Deprecation: { $ref: '#/components/headers/Deprecation' }
+            Sunset: { $ref: '#/components/headers/Sunset' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthDocument' }
+              examples:
+                ok: { $ref: '#/components/examples/HealthOk' }
+        '503':
+          description: '`overall` is `critical`.'
+          headers:
+            Link: { $ref: '#/components/headers/LinkSuccessorVersion' }
+            Deprecation: { $ref: '#/components/headers/Deprecation' }
+            Retry-After: { $ref: '#/components/headers/RetryAfter' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                critical: { $ref: '#/components/examples/ProblemUpstreamUnavailable' }
+
+  /status:
+    get:
+      operationId: legacyGetStatus
+      summary: '[Deprecated] HTML status dashboard (pre-v1)'
+      description: |
+        Deprecated alias of `/v1/status`, kept for bookmarked URLs. Renders the
+        same dashboard from the same health data.
+      tags: [Legacy]
+      deprecated: true
+      x-endpoint-id: health
+      parameters: []
+      responses:
+        '200':
+          description: The HTML status dashboard.
+          headers:
+            Link: { $ref: '#/components/headers/LinkSuccessorVersion' }
+            Deprecation: { $ref: '#/components/headers/Deprecation' }
+            Sunset: { $ref: '#/components/headers/Sunset' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+          content:
+            text/html:
+              schema: { type: string }
+              examples:
+                dashboard: { $ref: '#/components/examples/HealthDashboard' }
+
+# =============================================================================
+# Components
+# =============================================================================
+components:
+
+  securitySchemes:
+    adminBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: |
+        Static administrator token for `POST /v1/maintenance`, read from the
+        `SATAPI_ADMIN_TOKEN` environment variable or the `admin.token`
+        configuration key. Send it as `Authorization: Bearer <token>`; a wrong or
+        missing token yields `401`, and when no token is configured the route is
+        disabled and answers `503`.
+
+  # ---------------------------------------------------------------------------
+  # Shared parameters
+  # ---------------------------------------------------------------------------
+  parameters:
+
+    # TLE
+    GroupParam: { name: group, in: query, description: 'Which upstream group to merge; `all` merges every source and de-duplicates by NORAD id, keeping the newest epoch.', schema: { type: string, enum: [all, weather, amateur, amsat, satnogs], default: all }, example: all }
+    SourceParam: { name: source, in: path, required: true, description: 'Single upstream document: `weather` (CelesTrak Weather), `amateur` (CelesTrak Amateur), `amsat` or `satnogs`.', schema: { type: string, enum: [weather, amateur, amsat, satnogs] }, example: amateur }
+    FormatParam: { name: format, in: query, description: '`tle` (default) returns classical 20-column TLE text, three lines per satellite with a `#` comment header; `json` returns the envelope whose data is an array of TleRecord.', schema: { type: string, enum: [tle, json], default: tle }, example: tle }
+    NoradParam: { name: norad, in: query, description: 'Comma separated NORAD catalogue numbers to keep.', schema: { type: [string, "null"] }, example: '25544,43017' }
+    LimitParam: { name: limit, in: query, description: 'Maximum number of satellites to return; `0` means all.', schema: { type: integer, minimum: 0, maximum: 20000, default: 0 }, example: 500 }
+    MetaParam: { name: meta, in: query, description: 'Alias of `include_meta`; `false` removes the leading `#` comment block from the text output.', schema: { type: boolean, default: true }, example: true }
+    IncludeMetaParam: { name: include_meta, in: query, description: 'Alias of `meta`; `false` removes the leading `#` comment block from the text output.', schema: { type: boolean, default: true }, example: true }
+    PrettyParam: { name: pretty, in: query, description: 'Pretty-print the JSON output.', schema: { type: boolean, default: false }, example: true }
+
+    # Pagination and projection
+    PageParam: { name: page, in: query, description: '1-based page number.', schema: { type: integer, minimum: 1, default: 1 }, example: 1 }
+    PerPageParam: { name: per_page, in: query, description: 'Page size, maximum 1000.', schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }, example: 100 }
+    AllParam: { name: all, in: query, description: 'Return the whole list and ignore pagination. Use with care on `/v1/transmitters`, whose upstream document is about 4 MB.', schema: { type: boolean, default: false }, example: false }
+    FieldsParam: { name: fields, in: query, description: 'Comma separated projection applied server-side. The default set is endpoint specific; `fields=all` returns every upstream field unchanged.', schema: { type: string }, example: 'norad_cat_id,name,status,updated' }
+    SinceParam: { name: since, in: query, description: 'Only return records changed or observed at or after this instant (ISO-8601 timestamp or unix seconds).', schema: { type: [string, integer] }, example: '2024-06-01T00:00:00Z' }
+    UntilParam: { name: until, in: query, description: 'Only return records changed or observed at or before this instant (ISO-8601 timestamp or unix seconds).', schema: { type: [string, integer] }, example: '2024-06-01T23:59:59Z' }
+    SortParam: { name: sort, in: query, description: 'Upstream field name to sort by.', schema: { type: string }, example: norad_cat_id }
+    OrderParam: { name: order, in: query, description: 'Sort direction.', schema: { type: string, enum: [asc, desc], default: asc }, example: asc }
+
+    # Satellites
+    NoradCatIdParam: { name: norad_cat_id, in: query, description: 'Comma separated NORAD catalogue numbers.', schema: { type: [string, integer] }, example: '25544,43017' }
+    SatIdParam: { name: sat_id, in: query, description: 'Comma separated SatNOGS satellite identifiers.', schema: { type: [string, "null"] }, example: 'SCHX-0895-2361-9925-0309' }
+    SatelliteStatusParam: { name: status, in: query, description: 'Satellite status as published by SatNOGS, for example `in orbit`.', schema: { type: string }, example: in orbit }
+    OperatorParam: { name: operator, in: query, description: 'Operator name as published by SatNOGS.', schema: { type: string }, example: NASA }
+    SatelliteSearchParam: { name: search, in: query, description: 'Case-insensitive free-text match against `name`, `names`, `operator`, `countries` and `sat_id`.', schema: { type: string }, example: 'space station' }
+
+    # Transmitters
+    UuidParam: { name: uuid, in: query, description: 'Comma separated transmitter UUIDs.', schema: { type: [string, "null"] }, example: 'aaaabbbb-1111-2222-3333-444455556666' }
+    ModeParam: { name: mode, in: query, description: 'Comma separated transmitter modes, for example `FM`, `BPSK`, `CW`.', schema: { type: [string, "null"] }, example: 'FM,AFSK' }
+    TransmitterStatusParam: { name: status, in: query, description: 'Transmitter status as published by SatNOGS.', schema: { type: string }, example: active }
+    TypeParam: { name: type, in: query, description: 'Comma separated transmitter types, for example `Transmitter`, `Transponder`.', schema: { type: [string, "null"] }, example: Transponder }
+    AliveParam: { name: alive, in: query, description: 'Only return transmitters whose upstream `alive` flag matches.', schema: { type: boolean }, example: true }
+    TransmitterSearchParam: { name: search, in: query, description: 'Case-insensitive free-text match against `description`, `mode`, `type` and `uuid`.', schema: { type: string }, example: 'voice repeater' }
+
+    # AMSAT
+    AmsatSatelliteParam: { name: satellite, in: query, description: 'Comma separated satellite names.', schema: { type: [string, "null"] }, example: 'AO-7,AO-91' }
+    CallsignParam: { name: callsign, in: query, description: 'Comma separated amateur radio callsigns.', schema: { type: [string, "null"] }, example: 'VK2ABC,N0CALL' }
+    AmsatStatusParam: { name: status, in: query, description: 'Comma separated report statuses, for example `Heard` or `Not Heard`.', schema: { type: [string, "null"] }, example: Heard }
+
+    # System
+    UiParam: { name: ui, in: query, description: '`1` or `true` renders the HTML dashboard instead of the JSON health document; the payload equals `/v1/status`.', schema: { type: boolean, default: false }, example: true }
+
+  # ---------------------------------------------------------------------------
+  # Shared headers
+  # ---------------------------------------------------------------------------
+  headers:
+
+    ETag: { description: 'Strong entity tag of the served document; send it back with `If-None-Match`.', schema: { type: string }, example: '"6f4a1c9e2b7d8f30"' }
+    LastModified: { description: 'RFC 7231 HTTP-date of the last successful upstream refresh.', schema: { type: string }, example: 'Sat, 01 Jun 2024 12:00:00 GMT' }
+    CacheControl: { description: 'Freshness policy applied by the service; `no-store` for live health probes.', schema: { type: string }, example: 'public, max-age=3600, stale-while-revalidate=600' }
+    XCacheStatus: { description: 'Cache disposition of this response.', schema: { type: string, enum: [HIT, MISS, STALE] }, example: HIT }
+    XCacheAge: { description: 'Age of the served cached document, in seconds.', schema: { type: integer, minimum: 0 }, example: 212 }
+    XCacheTTL: { description: 'Freshness window of the served cached document, in seconds.', schema: { type: integer, minimum: 0 }, example: 3600 }
+    XCacheBackend: { description: 'Storage backend that served the cached document.', schema: { type: string, enum: [redis, file, memory, none] }, example: redis }
+    XRequestId: { description: 'Unique id of this request, repeated in `meta.request_id` and in problem documents.', schema: { type: string }, example: 'req_43492d7eec89ee04' }
+    XServiceVersion: { description: 'Running service version.', schema: { type: string }, example: 2.2.0 }
+    XHealth: { description: 'Aggregate health of the service: `ok`, `degraded` or `critical`. Sent on `/v1/health`, `/v1/health/ready` and `/v1/status`.', schema: { type: string, enum: [ok, degraded, critical] }, example: ok }
+    RetryAfter: { description: 'Seconds to wait before the request may be retried.', schema: { type: integer, minimum: 0 }, example: 30 }
+    XRateLimitLimit: { description: 'Request budget of the current window.', schema: { type: integer, minimum: 0 }, example: 600 }
+    XRateLimitRemaining: { description: 'Requests left in the current window.', schema: { type: integer, minimum: 0 }, example: 597 }
+    XRateLimitReset: { description: 'Unix timestamp at which the current window resets.', schema: { type: integer }, example: 1717243200 }
+    Deprecation: { description: 'RFC 8594 deprecation marker: `true`, or the date at which the route was deprecated.', schema: { type: string }, example: 'true' }
+    Sunset: { description: 'RFC 8594 removal date of the deprecated route, when one is scheduled.', schema: { type: string }, example: 'Fri, 01 Jan 2027 00:00:00 GMT' }
+    Link: { description: 'RFC 8288 links: `next`, `prev` and `last` on paginated responses; `rel="successor-version"` on deprecated routes.', schema: { type: string }, example: '</v1/satellites?page=2&per_page=100>; rel="next", </v1/satellites?page=26&per_page=100>; rel="last"' }
+    LinkSuccessorVersion: { description: 'Link to the `/v1` resource that replaces this deprecated route.', schema: { type: string }, example: '</v1/tle>; rel="successor-version"' }
+
+  # ---------------------------------------------------------------------------
+  # Shared responses
+  # ---------------------------------------------------------------------------
+  responses:
+
+    NotModified:
+      description: 'The cached representation still matches the `If-None-Match` entity tag; no body is returned.'
+      headers:
+        ETag: { $ref: '#/components/headers/ETag' }
+        Cache-Control: { $ref: '#/components/headers/CacheControl' }
+        X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+        X-Cache-Age: { $ref: '#/components/headers/XCacheAge' }
+        X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+        X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+
+    BadRequest:
+      description: 'One or more query parameters are invalid (`bad_request`).'
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+        X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            invalidEnum: { $ref: '#/components/examples/ProblemBadRequest' }
+
+    NotFound:
+      description: 'The requested resource does not exist: unknown path, unsupported `{source}` value or unknown identifier (`not_found`).'
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+        X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            unknownSource: { $ref: '#/components/examples/ProblemNotFound' }
+
+    MethodNotAllowed:
+      description: 'The HTTP method is not supported for this path (`method_not_allowed`).'
+      headers:
+        Allow: { description: 'Methods allowed for this path.', schema: { type: string }, example: 'GET, HEAD, OPTIONS' }
+        X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            wrongMethod: { $ref: '#/components/examples/ProblemMethodNotAllowed' }
+
+    Unauthorized:
+      description: 'The administrator bearer token is missing or wrong (`unauthorized`).'
+      headers:
+        WWW-Authenticate: { description: 'Authentication challenge.', schema: { type: string }, example: 'Bearer realm="satellite-api-admin"' }
+        X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            missingToken: { $ref: '#/components/examples/ProblemUnauthorized' }
+
+    PayloadTooLarge:
+      description: 'The request body exceeds the accepted size (`payload_too_large`).'
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            tooLarge: { $ref: '#/components/examples/ProblemPayloadTooLarge' }
+
+    RateLimited:
+      description: 'The client exceeded its request budget (`rate_limited`).'
+      headers:
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+        X-RateLimit-Limit: { $ref: '#/components/headers/XRateLimitLimit' }
+        X-RateLimit-Remaining: { $ref: '#/components/headers/XRateLimitRemaining' }
+        X-RateLimit-Reset: { $ref: '#/components/headers/XRateLimitReset' }
+        X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+        X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            throttled: { $ref: '#/components/examples/ProblemRateLimited' }
+
+    ServiceUnavailable:
+      description: 'Data cannot be produced right now: the endpoint is in maintenance (`maintenance`) or every relevant upstream is unreachable (`upstream_unavailable`).'
+      headers:
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+        X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+        X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            maintenance: { $ref: '#/components/examples/ProblemMaintenance' }
+            upstreamDown: { $ref: '#/components/examples/ProblemUpstreamUnavailable' }
+
+    AdminDisabled:
+      description: 'The administrator API is disabled because no token is configured (`unauthorized`).'
+      headers:
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+        X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+        X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            disabled: { $ref: '#/components/examples/ProblemAdminDisabled' }
+
+    InternalServerError:
+      description: 'An unexpected server-side failure (`internal_error`).'
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+        X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            failure: { $ref: '#/components/examples/ProblemInternalError' }
+
+  # ---------------------------------------------------------------------------
+  # Schemas
+  # ---------------------------------------------------------------------------
+  schemas:
+
+    # --- Envelope ------------------------------------------------------------
+    Envelope:
+      type: object
+      description: Common JSON response envelope; concrete envelopes narrow `data` to the endpoint payload.
+      required: [meta, data]
+      properties:
+        meta: { $ref: '#/components/schemas/Meta' }
+        data: { description: 'Payload of the endpoint; narrowed by each concrete envelope.' }
+
+    Meta:
+      type: object
+      description: Response metadata present on every JSON response.
+      required: [service, version, api_version, generated, request_id, elapsed_ms]
+      properties:
+        service: { type: string, description: Service name., example: Satellite Data API }
+        version: { type: string, description: Service version., example: 2.2.0 }
+        api_version: { type: string, description: Public API version prefix., example: v1 }
+        generated: { type: string, description: RFC 3339 UTC generation time., example: '2026-09-20T05:57:45Z' }
+        request_id: { type: string, description: Unique id of this request., example: 'req_43492d7eec89ee04' }
+        elapsed_ms: { type: number, description: Server-side handling time in milliseconds., example: 214 }
+        count: { type: integer, minimum: 0, description: Number of items returned., example: 100 }
+        total: { type: integer, minimum: 0, description: Number of items available before pagination., example: 2547 }
+        fields: { type: [array, string], items: { type: string }, description: 'Projection applied to the data rows: an array of field names, or `all` when every upstream field is returned.', example: [sat_id, norad_cat_id, name, status, updated] }
+        sources: { type: array, items: { $ref: '#/components/schemas/SourceStatus' }, description: 'Per-upstream outcome; only set by the merged TLE feed.', example: [{ id: weather, label: CelesTrak Weather, count: 3, ok: true, cache: HIT, age_seconds: 1, error: null }] }
+        source: { $ref: '#/components/schemas/MetaSource' }
+        cache: { $ref: '#/components/schemas/CacheInfo' }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+        warnings: { type: array, items: { type: string }, description: Non-fatal notes such as a stale upstream document., example: ['amsat: serving stale document (age 4200s > ttl 3600s)'] }
+        writable: { type: boolean, description: 'Whether admin maintenance writes are enabled; only set by `/v1/maintenance`.', example: false }
+        hint: { type: string, description: 'Operator hint about the maintenance API; only set by `/v1/maintenance`.', example: 'Maintenance writes are disabled: set SATAPI_ADMIN_TOKEN (config admin.token) to enable them.' }
+        applied_by: { type: string, description: 'Client address that applied a maintenance change; only set by the `POST /v1/maintenance` response.', example: '203.0.113.7' }
+        license: { type: string, description: 'Attribution notice; only set by the merged TLE feed.', example: 'Upstream data: see /v1/meta#attribution' }
+
+    CacheInfo:
+      type: object
+      description: Cache disposition of the served document.
+      required: [status]
+      properties:
+        status: { type: string, enum: [HIT, MISS, STALE], description: Matches the X-Cache-Status header., example: HIT }
+        age_seconds: { type: [integer, "null"], minimum: 0, description: Age of the cached document in seconds., example: 212 }
+        ttl: { type: [integer, "null"], minimum: 0, description: Freshness window in seconds., example: 3600 }
+
+    Pagination:
+      type: object
+      description: Pagination state; omitted by endpoints that never paginate.
+      required: [page, per_page, total, total_pages, has_more]
+      properties:
+        page: { type: integer, minimum: 1, example: 1 }
+        per_page: { type: integer, minimum: 1, maximum: 1000, example: 100 }
+        total: { type: integer, minimum: 0, example: 2547 }
+        total_pages: { type: integer, minimum: 0, example: 26 }
+        has_more: { type: boolean, example: true }
+        next: { type: [string, "null"], description: URL of the next page or null on the last page., example: '/v1/satellites?page=2&per_page=100' }
+
+    SourceStatus:
+      type: object
+      description: Outcome of one upstream while a merged TLE response was assembled.
+      required: [id, label, count, ok, cache, age_seconds, error]
+      properties:
+        id: { type: string, description: Upstream id., example: weather }
+        label: { type: string, description: Human-readable upstream name., example: CelesTrak Weather }
+        count: { type: integer, minimum: 0, description: Records this upstream contributed., example: 3 }
+        ok: { type: boolean, description: Whether the upstream answered., example: true }
+        cache: { type: string, enum: [HIT, MISS, STALE, EXPIRED], description: Cache disposition of the upstream document., example: HIT }
+        age_seconds: { type: integer, minimum: 0, description: Age of the cached upstream document in seconds., example: 1 }
+        error: { type: [string, "null"], description: Failure message when `ok` is false., example: null }
+
+    MetaSource:
+      type: object
+      description: The single upstream an endpoint reads, as recorded in `meta.source`.
+      required: [id, label, url, attribution, cache, age_seconds, ttl]
+      properties:
+        id: { type: string, description: Upstream id., example: satnogs_satellites }
+        label: { type: string, description: Human-readable upstream name., example: SatNOGS Satellites }
+        url: { type: string, description: Upstream document URL., example: 'https://db.satnogs.org/api/satellites/' }
+        attribution: { type: string, description: Attribution string for the upstream., example: 'SatNOGS DB (libre.space)' }
+        cache: { type: string, enum: [HIT, MISS, STALE, EXPIRED], description: Cache disposition of the upstream document., example: HIT }
+        age_seconds: { type: integer, minimum: 0, description: Age of the cached upstream document in seconds., example: 3 }
+        ttl: { type: integer, minimum: 0, description: Freshness window of the upstream document in seconds., example: 21600 }
+
+    ServiceLinks:
+      type: object
+      description: Canonical links published by the service.
+      properties:
+        self: { type: string, example: /v1/meta }
+        docs: { type: string, example: /docs.html }
+        openapi: { type: string, example: /openapi.yaml }
+        status: { type: string, example: /v1/status }
+        health: { type: string, example: /v1/health }
+        ready: { type: string, example: /v1/health/ready }
+        sources: { type: string, description: Templated per-source TLE feed., example: '/v1/tle/{source}' }
+
+    # --- TLE -----------------------------------------------------------------
+    TleRecord:
+      type: object
+      description: One two-line element set after normalisation.
+      required: [norad_id, name, epoch, epoch_unix, source, tle, checksum_ok]
+      properties:
+        norad_id: { type: string, pattern: '^[0-9]{5}$', description: 'NORAD catalogue number, zero padded to five characters.', example: '25544' }
+        name: { type: string, description: Satellite name as published upstream., example: ISS (ZARYA) }
+        epoch: { type: string, description: RFC 3339 UTC epoch of the element set., example: '2026-09-27T12:00:00Z' }
+        epoch_unix: { type: integer, description: Same instant as unix seconds., example: 1790510400 }
+        source: { type: string, enum: [weather, amateur, amsat, satnogs], description: Upstream that contributed this element set., example: satnogs }
+        tle: { type: array, minItems: 2, maxItems: 2, items: { type: string }, description: 'The two element lines, line 1 first.', example: ['1 25544U 98067A   26270.50000000  .00006292  00000-0  12172-3 0  9997', '2 25544  51.6310 211.2092 0004923 144.3133 215.8185 15.49128922585812'] }
+        checksum_ok: { type: boolean, description: Whether both element lines pass the modulo-10 TLE checksum., example: true }
+
+    TleEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [data]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/TleRecord' } }
+
+    # --- Catalogue -----------------------------------------------------------
+    Satellite:
+      type: object
+      description: 'SatNOGS satellite object. The default projection returns the members listed here; `fields=all` returns every upstream member, including ones this schema does not name.'
+      required: [sat_id, norad_cat_id, name]
+      properties:
+        sat_id: { type: string, description: SatNOGS satellite identifier., example: 'SCHX-0895-2361-9925-0309' }
+        norad_cat_id: { type: integer, minimum: 1, example: 965 }
+        name: { type: string, example: TRANSIT 5B-5 }
+        names: { type: string, description: 'Alternative names, comma separated as published upstream.', example: 'OPS 6582' }
+        status: { type: string, description: Upstream satellite status., example: in orbit }
+        launched: { type: [string, "null"], description: RFC 3339 UTC launch instant as published upstream., example: '1964-12-13T00:00:00Z' }
+        operator: { type: [string, "null"], example: NASA }
+        countries: { type: [string, "null"], description: 'Country codes as published upstream, comma separated.', example: US }
+        updated: { type: string, description: RFC 3339 UTC timestamp of the last upstream change., example: '2024-09-16T18:41:03.363197Z' }
+        image: { type: [string, "null"], description: 'Relative image path; present only in the complete upstream document (`fields=all` or the legacy route).', example: 'satellites/transit-o__1.jpg' }
+        citation: { type: [string, "null"], description: 'Citation URL; present only in the complete upstream document (`fields=all` or the legacy route).', example: 'https://secwww.jhuapl.edu/techdigest/' }
+
+    SatelliteEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [data]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Satellite' } }
+
+    Transmitter:
+      type: object
+      description: 'SatNOGS transmitter object. The default projection returns the members listed here; `fields=all` returns every upstream member.'
+      required: [uuid, norad_cat_id]
+      properties:
+        uuid: { type: string, description: Transmitter UUID., example: 'aaaabbbb-1111-2222-3333-444455556666' }
+        norad_cat_id: { type: integer, minimum: 1, example: 25544 }
+        description: { type: [string, "null"], example: 'ISS APRS digipeater' }
+        mode: { type: [string, "null"], description: Modulation or mode label., example: AFSK }
+        baud: { type: [integer, "null"], minimum: 0, description: Baud rate when applicable; `0` when the upstream reports none., example: 1200 }
+        type: { type: [string, "null"], description: Transmitter type., example: Transmitter }
+        status: { type: [string, "null"], description: Upstream transmitter status., example: active }
+        alive: { type: boolean, description: Upstream liveness flag., example: true }
+        uplink_low: { type: [integer, "null"], description: Uplink frequency in Hz., example: 145825000 }
+        downlink_low: { type: [integer, "null"], description: Downlink frequency in Hz., example: 145825000 }
+        updated: { type: string, description: RFC 3339 UTC timestamp of the last upstream change., example: '2026-09-10T12:00:00.000000Z' }
+
+    TransmitterEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [data]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Transmitter' } }
+
+    # --- AMSAT ---------------------------------------------------------------
+    AmsatReport:
+      type: object
+      description: One AMSAT live status report.
+      required: [status, callsign, grid, satellite, norad_id, timestamp, timestamp_unix]
+      properties:
+        status: { type: string, description: Report status such as `Heard` or `Not Heard`., example: Heard }
+        callsign: { type: string, example: VK2ABC }
+        grid: { type: [string, "null"], description: Maidenhead grid locator of the reporting station., example: QF56 }
+        satellite: { type: string, example: AO-7 }
+        norad_id: { type: [string, "null"], description: 'NORAD catalogue number, zero padded to five characters.', example: '07530' }
+        timestamp: { type: string, description: RFC 3339 UTC timestamp of the report., example: '2026-09-15T13:05:00Z' }
+        timestamp_unix: { type: integer, description: Same instant as unix seconds., example: 1789477500 }
+
+    AmsatEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [data]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/AmsatReport' } }
+
+    LegacyAmsatReport:
+      type: object
+      description: 'Pre-v1 AMSAT report; timestamps use the PHP `"Y-m-d H:i:s"` format in UTC.'
+      required: [status, callsign, satellite, timestamp]
+      properties:
+        status: { type: string, example: Heard }
+        callsign: { type: string, example: VK2ABC }
+        grid: { type: [string, "null"], example: QF56 }
+        satellite: { type: string, example: AO-7 }
+        norad_id: { type: [string, "null"], description: 'NORAD catalogue number, zero padded to five characters.', example: '07530' }
+        timestamp: { type: string, description: 'UTC timestamp formatted as "Y-m-d H:i:s".', example: '2026-09-15 13:05:00' }
+
+    LegacyAmsatEnvelope:
+      type: object
+      description: Historical pre-v1 AMSAT status envelope.
+      required: [status, generated, total_reports, data]
+      properties:
+        status: { type: string, example: success }
+        generated: { type: string, description: 'UTC generation time formatted as "Y-m-d H:i:s" followed by " UTC".', example: '2026-09-20 05:57:58 UTC' }
+        total_reports: { type: integer, minimum: 0, example: 4 }
+        data: { type: array, items: { $ref: '#/components/schemas/LegacyAmsatReport' } }
+
+    # --- Service metadata ----------------------------------------------------
+    EndpointDescriptor:
+      type: object
+      description: 'One public route as advertised by `/v1/meta`.'
+      required: [path, methods, id]
+      properties:
+        path: { type: string, description: 'Route path, with `{source}` left as a template.', example: /v1/tle }
+        methods: { type: array, items: { type: string }, description: HTTP methods served on this path., example: [GET, HEAD] }
+        id: { type: string, description: Maintenance endpoint id., example: tle_merge }
+
+    SourceDescriptor:
+      type: object
+      description: One upstream data source.
+      required: [id, label, url, cache_ttl, parser, attribution]
+      properties:
+        id: { type: string, example: weather }
+        label: { type: string, example: CelesTrak Weather }
+        url: { type: string, example: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=weather&FORMAT=tle' }
+        cache_ttl: { type: integer, minimum: 0, description: Cache freshness window in seconds., example: 10800 }
+        parser: { type: string, description: Parser applied to the upstream document., example: tle-text }
+        attribution: { type: string, example: 'CelesTrak (Dr. T.S. Kelso)' }
+
+    LimitsDocument:
+      type: object
+      description: Limits enforced by the service.
+      required: [rate_limit_enabled, rate_limit_per_minute, max_per_page, compression, max_request_bytes]
+      properties:
+        rate_limit_enabled: { type: boolean, description: 'Whether the per-client request budget is enforced.', example: false }
+        rate_limit_per_minute: { type: integer, minimum: 0, description: Configured request budget per minute when rate limiting is enabled., example: 120 }
+        max_per_page: { type: integer, minimum: 1, description: Largest accepted `per_page` value., example: 1000 }
+        compression: { type: boolean, description: Whether response compression is enabled., example: true }
+        max_request_bytes: { type: integer, minimum: 0, description: Largest accepted request body in bytes., example: 33554432 }
+
+    RateLimitInfo:
+      type: object
+      description: Rate limit description carried by a `rate_limited` problem document.
+      required: [limit, remaining, reset]
+      properties:
+        limit: { type: integer, minimum: 0, description: Request budget of the window., example: 600 }
+        remaining: { type: integer, minimum: 0, example: 597 }
+        reset: { type: integer, description: Unix timestamp at which the window resets., example: 1717243200 }
+        window_seconds: { type: [integer, "null"], description: Length of the window in seconds., example: 60 }
+
+    ErrorDescriptor:
+      type: object
+      description: 'Catalogue of every problem code the service can emit, mapping the `code` to a human-readable description.'
+      additionalProperties: { type: string }
+      example: { bad_request: 'Malformed or contradictory query parameters.', not_found: 'Unknown route or unknown resource identifier.' }
+
+    ServiceInfo:
+      type: object
+      description: 'Build and contact information of the running service.'
+      required: [name, version, api_version, description, homepage, docs, openapi, status_page, license, contact, build]
+      properties:
+        name: { type: string, example: Satellite Data API }
+        version: { type: string, example: 2.2.0 }
+        api_version: { type: string, example: v1 }
+        description: { type: string, example: 'Unified TLE and satellite metadata proxy (CelesTrak, AMSAT, SatNOGS).' }
+        homepage: { type: string, example: 'https://satellite.api.authskin.xyz' }
+        docs: { type: string, example: /docs.html }
+        openapi: { type: string, example: /openapi.yaml }
+        status_page: { type: string, example: /v1/status }
+        license: { type: string, example: 'Data: public sources. API code: MIT.' }
+        contact: { type: string, example: 'https://community.libre.space/' }
+        build: { type: string, description: Build identifier of the running deployment., example: local }
+
+    MetaDocument:
+      type: object
+      description: 'The `/v1/meta` payload.'
+      required: [service, endpoints, legacy_routes, sources, limits, errors, cache_backend, maintenance, links]
+      properties:
+        service: { $ref: '#/components/schemas/ServiceInfo' }
+        endpoints: { type: array, items: { $ref: '#/components/schemas/EndpointDescriptor' } }
+        legacy_routes: { type: array, items: { type: string }, description: Ids of the deprecated pre-v1 routes., example: [tle_merge, tle_weather, amsat_status, health] }
+        sources: { type: array, items: { $ref: '#/components/schemas/SourceDescriptor' } }
+        limits: { $ref: '#/components/schemas/LimitsDocument' }
+        errors: { $ref: '#/components/schemas/ErrorDescriptor' }
+        cache_backend: { type: string, description: Active cache backend., example: file }
+        maintenance: { $ref: '#/components/schemas/MaintenanceMap' }
+        links: { $ref: '#/components/schemas/ServiceLinks' }
+
+    MetaEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/MetaDocument' }
+
+    # --- Maintenance ---------------------------------------------------------
+    MaintenanceState:
+      type: object
+      description: Maintenance state of one endpoint.
+      required: [endpoint, enabled, message, source]
+      properties:
+        endpoint: { type: string, description: Endpoint id., example: tle_weather }
+        enabled: { type: boolean, description: Whether the endpoint is in maintenance., example: false }
+        message: { type: string, description: Message shown in the maintenance problem document; empty when no window is active., example: '' }
+        source: { type: string, description: 'Where the active state is stored: `redis` or `file`; empty string when the endpoint is not in maintenance.', example: '' }
+
+    MaintenanceMap:
+      type: object
+      description: Maintenance states keyed by endpoint id.
+      additionalProperties: { $ref: '#/components/schemas/MaintenanceState' }
+
+    MaintenanceEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [data]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/MaintenanceState' } }
+
+    MaintenanceUpdate:
+      type: object
+      description: 'Request body of `POST /v1/maintenance`.'
+      required: [endpoint]
+      properties:
+        endpoint: { type: string, description: 'Endpoint id, or `all` for every endpoint.', example: tle_weather }
+        enabled: { type: boolean, default: true, description: 'Enable (`true`) or clear (`false`) maintenance.', example: true }
+        message: { type: string, description: Message returned to clients while maintenance is active., example: 'Planned CelesTrak upstream rework; try again in an hour.' }
+        ttl: { type: integer, minimum: 60, maximum: 86400, default: 3600, description: Lifetime of the state in seconds., example: 3600 }
+
+    MaintenanceApplyResult:
+      type: object
+      description: Result of applying a maintenance state.
+      required: [endpoints, enabled, ttl, until, state]
+      properties:
+        endpoints: { type: array, items: { type: string }, description: Endpoint ids the state was applied to., example: [tle_weather] }
+        enabled: { type: boolean, description: Whether maintenance was enabled (`true`) or cleared (`false`)., example: true }
+        ttl: { type: integer, minimum: 60, maximum: 86400, description: Lifetime of the applied state in seconds., example: 3600 }
+        until: { type: [string, "null"], description: 'RFC 3339 UTC instant the state lapses, or null when maintenance was cleared.', example: '2026-09-20T06:57:53Z' }
+        state: { type: array, items: { $ref: '#/components/schemas/MaintenanceState' }, description: Maintenance state of every endpoint after the change. }
+
+    MaintenanceApplyEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/MaintenanceApplyResult' }
+
+    # --- Problems ------------------------------------------------------------
+    ProblemCode:
+      type: string
+      description: Stable machine-readable error code.
+      enum: [bad_request, not_found, method_not_allowed, maintenance, upstream_unavailable, rate_limited, payload_too_large, unauthorized, internal_error]
+
+    ProblemMaintenance:
+      type: object
+      description: Maintenance context of a `maintenance` problem.
+      required: [endpoint]
+      properties:
+        endpoint: { type: string, example: tle_weather }
+        retry_after: { type: [integer, "null"], description: Seconds until the endpoint is expected back., example: 120 }
+        until: { type: [string, "null"], description: 'RFC 3339 UTC instant the window is expected to end, or null when no end is scheduled.', example: null }
+
+    Problem:
+      type: object
+      description: 'RFC 9457 problem details document, served as `application/problem+json`.'
+      required: [type, title, status, detail, code, instance, request_id]
+      properties:
+        type: { type: string, description: URI reference identifying the problem type., example: 'https://satellite.api.authskin.xyz/errors/not-found' }
+        title: { type: string, description: Short human-readable summary., example: Not Found }
+        status: { type: integer, minimum: 100, maximum: 599, example: 404 }
+        detail: { type: string, description: Human-readable explanation of this occurrence., example: 'No route matches /v1/nope. See /v1/meta for the endpoint index.' }
+        code: { $ref: '#/components/schemas/ProblemCode' }
+        instance: { type: string, description: URI reference of the request that failed., example: /v1/nope }
+        request_id: { type: string, example: 'req_990c37cbed355be3' }
+        sources: { type: array, items: { $ref: '#/components/schemas/SourceStatus' }, description: Per-upstream outcome when no data could be assembled (`upstream_unavailable`)., example: [{ id: weather, label: CelesTrak Weather, count: 0, ok: false, cache: EXPIRED, age_seconds: 0, error: 'the PHP cURL extension is not installed' }] }
+        parameter: { type: [string, "null"], description: Query parameter that caused the problem when applicable., example: format }
+        allow: { type: array, items: { type: string }, description: Methods allowed for the path (`method_not_allowed`)., example: [GET, HEAD, OPTIONS] }
+        maintenance: { $ref: '#/components/schemas/ProblemMaintenance' }
+        hint: { type: string, description: Operator hint about how to resolve or interpret the condition (`upstream_unavailable`)., example: 'Cached data is served automatically whenever it exists; this response means even the stale copy was unavailable.' }
+        rate_limit: { $ref: '#/components/schemas/RateLimitInfo' }
+
+    # --- Health --------------------------------------------------------------
+    RedisCheck:
+      type: string
+      description: Redis availability as seen by the health check.
+      enum: [connected, extension_not_loaded, connection_failed]
+
+    StorageCheck:
+      type: object
+      description: Cache storage backend state.
+      required: [backend, cache_dir, cache_dir_writable, redis_ext]
+      properties:
+        backend: { type: string, description: Active cache backend., example: file }
+        cache_dir: { type: string, description: Absolute path of the cache directory., example: /app/tests/tmp/cache }
+        cache_dir_writable: { type: boolean, example: true }
+        redis_ext: { type: boolean, description: Whether the Redis PHP extension is loaded., example: false }
+
+    CacheFileState:
+      type: object
+      description: State of one tracked cache document.
+      required: [exists, fresh]
+      properties:
+        exists: { type: boolean, example: true }
+        age_seconds: { type: [integer, "null"], minimum: 0, example: 750 }
+        age_human: { type: [string, "null"], description: Human-readable age., example: '12m 30s' }
+        size: { type: [integer, "null"], minimum: 0, description: Size in bytes., example: 184320 }
+        fresh: { type: boolean, description: Whether the document is inside its TTL., example: true }
+        ttl: { type: [integer, "null"], minimum: 0, example: 7200 }
+        backend: { type: [string, "null"], example: file }
+        sources: { type: [integer, "null"], minimum: 0, description: 'Number of contributing per-source TLE documents; only set on the `tle_merge` aggregate entry.' }
+
+    CacheFileMap:
+      type: object
+      description: Cache documents keyed by name (for example `tle_weather` or `satnogs_transmitters`).
+      additionalProperties: { $ref: '#/components/schemas/CacheFileState' }
+
+    HealthChecks:
+      type: object
+      description: Subsystem checks.
+      required: [redis, storage, cache_files, maintenance]
+      properties:
+        redis: { $ref: '#/components/schemas/RedisCheck' }
+        storage: { $ref: '#/components/schemas/StorageCheck' }
+        cache_files: { $ref: '#/components/schemas/CacheFileMap' }
+        maintenance: { $ref: '#/components/schemas/MaintenanceMap' }
+
+    MetricCounters:
+      type: object
+      description: Aggregate request counters.
+      required: [requests, errors, avg_ms, bytes]
+      properties:
+        requests: { type: integer, minimum: 0, example: 18422 }
+        errors: { type: integer, minimum: 0, example: 37 }
+        avg_ms: { type: number, example: 38.4 }
+        bytes: { type: integer, minimum: 0, description: Response bytes served., example: 92045122 }
+
+    EndpointMetrics:
+      type: object
+      description: Per-endpoint request counters.
+      required: [requests, errors, avg_ms, cache, last_status, last_seen_at]
+      properties:
+        requests: { type: integer, minimum: 0, example: 9120 }
+        errors: { type: integer, minimum: 0, example: 12 }
+        avg_ms: { type: number, example: 44.6 }
+        cache: { type: object, description: 'Cache dispositions seen for this endpoint, keyed by status.', additionalProperties: { type: integer, minimum: 0 }, example: { HIT: 9080, MISS: 40 } }
+        last_status: { type: integer, minimum: 100, maximum: 599, description: HTTP status of the most recent request., example: 200 }
+        last_seen_at: { type: integer, minimum: 0, description: Unix timestamp of the most recent request., example: 1717243200 }
+
+    UpstreamMetrics:
+      type: object
+      description: Per-upstream fetch counters.
+      required: [ok, fail, last_ms, last_ok_at, last_fail_at, last_error]
+      properties:
+        ok: { type: integer, minimum: 0, description: Successful fetches., example: 412 }
+        fail: { type: integer, minimum: 0, description: Failed fetches., example: 3 }
+        last_ms: { type: integer, minimum: 0, description: Duration of the most recent fetch in milliseconds., example: 241 }
+        last_ok_at: { type: integer, minimum: 0, description: Unix timestamp of the last successful fetch., example: 1717243181 }
+        last_fail_at: { type: integer, minimum: 0, description: Unix timestamp of the last failed fetch., example: 1717233123 }
+        last_error: { type: [string, "null"], description: Message of the last upstream failure., example: 'the PHP cURL extension is not installed' }
+
+    HealthMetrics:
+      type: object
+      description: Runtime metrics.
+      required: [totals, endpoints, upstream]
+      properties:
+        totals: { $ref: '#/components/schemas/MetricCounters' }
+        endpoints:
+          description: 'Counters keyed by endpoint id; an empty map is serialised as `[]` until the first request is recorded.'
+          type: [object, array]
+          additionalProperties: { $ref: '#/components/schemas/EndpointMetrics' }
+        upstream:
+          description: 'Counters keyed by upstream source id; an empty map is serialised as `[]` until the first fetch is recorded.'
+          type: [object, array]
+          additionalProperties: { $ref: '#/components/schemas/UpstreamMetrics' }
+
+    HealthDocument:
+      type: object
+      description: 'Aggregate health document returned by `/v1/health` and `/health`.'
+      required: [status, overall, timestamp, generated, service, version, api_version, uptime_seconds, checks, metrics]
+      properties:
+        status: { type: string, enum: [ok, degraded], description: Coarse service status., example: ok }
+        overall: { type: string, enum: [ok, degraded, critical], description: 'Aggregate verdict; `critical` yields HTTP 503.', example: ok }
+        timestamp: { type: string, description: 'Check time in UTC, formatted as "Y-m-d H:i:s" followed by " UTC".', example: '2026-09-20 05:57:50 UTC' }
+        generated: { type: string, description: RFC 3339 UTC generation time., example: '2026-09-20T05:57:50Z' }
+        service: { type: string, description: Service name and version., example: Satellite API Proxy v2.2.0 }
+        version: { type: string, example: 2.2.0 }
+        api_version: { type: string, example: v1 }
+        uptime_seconds: { type: number, minimum: 0, example: 864213 }
+        checks: { $ref: '#/components/schemas/HealthChecks' }
+        metrics: { $ref: '#/components/schemas/HealthMetrics' }
+
+    HealthLive:
+      type: object
+      description: Liveness probe payload.
+      required: [status, check, timestamp, uptime_seconds]
+      properties:
+        status: { type: string, enum: [ok], example: ok }
+        check: { type: string, description: Name of the probe., example: liveness }
+        timestamp: { type: string, description: RFC 3339 UTC instant., example: '2026-09-20T05:57:51Z' }
+        uptime_seconds: { type: number, minimum: 0, example: 0 }
+
+    HealthReady:
+      type: object
+      description: Readiness probe payload.
+      required: [status, check, timestamp, overall, redis, caches]
+      properties:
+        status: { type: string, enum: [ok, unavailable], example: ok }
+        check: { type: string, description: Name of the probe., example: readiness }
+        timestamp: { type: string, description: RFC 3339 UTC instant., example: '2026-09-20T05:57:51Z' }
+        overall: { type: string, enum: [ok, degraded, critical], description: Aggregate verdict inherited from the health check., example: ok }
+        redis: { $ref: '#/components/schemas/RedisCheck' }
+        caches: { type: object, description: Freshness of every tracked cache document., additionalProperties: { type: string, enum: [fresh, stale, missing] } }
+
+  # ---------------------------------------------------------------------------
+  # Reusable examples
+  # ---------------------------------------------------------------------------
+  examples:
+
+    MergedTleText:
+      summary: 'Merged TLE text (three lines per satellite, `#` header)'
+      value: |
+        # Satellite Data API v2.2.0
+        # Generated: 2026-09-20T05:57:44Z
+        # Satellites: 3
+        # Cache TTL: 10800s
+        # Source weather   CelesTrak Weather          3 sats  cache=HIT
+        # Source amateur   CelesTrak Amateur          3 sats  cache=HIT
+        # Source amsat     AMSAT Daily TLE            3 sats  cache=HIT
+        # Source satnogs   SatNOGS DB TLE             2 sats  cache=HIT
+        # Docs: /docs.html
+        #
+        OPS 6582 (TRANSIT 5B-5)
+        1 00965U 64083D   26258.58971409  .00000060  00000-0  71445-4 0  9998
+        2 00965  90.0850 203.7831 0042332  16.2049 157.3311 13.57019432 55875
+        ISS (ZARYA)
+        1 25544U 98067A   26270.50000000  .00006292  00000-0  12172-3 0  9997
+        2 25544  51.6310 211.2092 0004923 144.3133 215.8185 15.49128922585812
+        NOAA 18
+        1 28654U 05018A   26262.50000000  .00000200  00000-0  12000-3 0  9999
+        2 28654  99.0100 200.2000 0014000 100.0000 260.0000 14.13000000 10000
+
+    SingleSourceTleText:
+      summary: CelesTrak Amateur TLE text
+      value: |
+        # Satellite Data API v2.2.0 - source: CelesTrak Amateur
+        # Generated: 2026-09-20T05:57:46Z
+        # Satellites: 3
+        # Cache: HIT (ttl 10800s)
+        # Docs: /docs.html
+        #
+        ISS (ZARYA)
+        1 25544U 98067A   26258.88499338  .00006292  00000-0  12172-3 0  9990
+        2 25544  51.6310 211.2092 0004923 144.3133 215.8185 15.49128922585812
+        OPS 6582 (TRANSIT 5B-5)
+        1 00965U 64083D   26258.58971409  .00000060  00000-0  71445-4 0  9998
+        2 00965  90.0850 203.7831 0042332  16.2049 157.3311 13.57019432 55875
+        NOAA 18
+        1 28654U 05018A   26262.50000000  .00000200  00000-0  12000-3 0  9999
+        2 28654  99.0100 200.2000 0014000 100.0000 260.0000 14.13000000 10000
+
+    MergedTleJson:
+      summary: Merged TLE envelope (source in each record, `meta.sources` per upstream)
+      value:
+        meta:
+          service: Satellite Data API
+          version: 2.2.0
+          api_version: v1
+          generated: '2026-09-20T05:57:45Z'
+          request_id: 'req_43492d7eec89ee04'
+          elapsed_ms: 214
+          count: 2
+          sources:
+            - { id: weather, label: CelesTrak Weather, count: 3, ok: true, cache: HIT, age_seconds: 1, error: null }
+            - { id: satnogs, label: SatNOGS DB TLE, count: 2, ok: true, cache: HIT, age_seconds: 1, error: null }
+          cache: { status: HIT, age_seconds: 1, ttl: 10800 }
+          warnings: []
+          license: 'Upstream data: see /v1/meta#attribution'
+        data:
+          - norad_id: '00965'
+            name: OPS 6582 (TRANSIT 5B-5)
+            epoch: '2026-09-15T14:09:11Z'
+            epoch_unix: 1789481351
+            source: weather
+            tle:
+              - '1 00965U 64083D   26258.58971409  .00000060  00000-0  71445-4 0  9998'
+              - '2 00965  90.0850 203.7831 0042332  16.2049 157.3311 13.57019432 55875'
+            checksum_ok: true
+          - norad_id: '25544'
+            name: ISS (ZARYA)
+            epoch: '2026-09-27T12:00:00Z'
+            epoch_unix: 1790510400
+            source: satnogs
+            tle:
+              - '1 25544U 98067A   26270.50000000  .00006292  00000-0  12172-3 0  9997'
+              - '2 25544  51.6310 211.2092 0004923 144.3133 215.8185 15.49128922585812'
+            checksum_ok: true
+
+    SatellitesPage:
+      summary: First page of SatNOGS satellites
+      value:
+        meta:
+          service: Satellite Data API
+          version: 2.2.0
+          api_version: v1
+          generated: '2026-09-20T05:57:47Z'
+          request_id: 'req_ab1c252abc294c3d'
+          elapsed_ms: 164
+          count: 2
+          total: 3
+          source: { id: satnogs_satellites, label: SatNOGS Satellites, url: 'https://db.satnogs.org/api/satellites/', attribution: 'SatNOGS DB (libre.space)', cache: HIT, age_seconds: 3, ttl: 21600 }
+          fields: [sat_id, norad_cat_id, name, names, status, launched, operator, countries, updated]
+          pagination: { page: 1, per_page: 2, total: 3, total_pages: 2, has_more: true, next: '/v1/satellites?per_page=2&page=2' }
+        data:
+          - sat_id: 'SCHX-0895-2361-9925-0309'
+            norad_cat_id: 965
+            name: TRANSIT 5B-5
+            names: 'OPS 6582'
+            status: in orbit
+            launched: '1964-12-13T00:00:00Z'
+            operator: 'None'
+            countries: US
+            updated: '2024-09-16T18:41:03.363197Z'
+          - sat_id: 'AAAA-1111-2222-3333-4444'
+            norad_cat_id: 25544
+            name: ISS (ZARYA)
+            names: 'ISS, ZARYA'
+            status: in orbit
+            launched: '1998-11-20T00:00:00Z'
+            operator: NASA
+            countries: US
+            updated: '2026-09-15T10:00:00.000000Z'
+
+    TransmittersPage:
+      summary: First page of SatNOGS transmitters
+      value:
+        meta:
+          service: Satellite Data API
+          version: 2.2.0
+          api_version: v1
+          generated: '2026-09-20T05:57:48Z'
+          request_id: 'req_b2c39d50e904dffa'
+          elapsed_ms: 210
+          count: 2
+          total: 3
+          source: { id: satnogs_transmitters, label: SatNOGS Transmitters, url: 'https://db.satnogs.org/api/transmitters/', attribution: 'SatNOGS DB (libre.space)', cache: HIT, age_seconds: 4, ttl: 21600 }
+          fields: [uuid, norad_cat_id, description, mode, baud, type, status, alive, uplink_low, downlink_low, updated]
+          pagination: { page: 1, per_page: 2, total: 3, total_pages: 2, has_more: true, next: '/v1/transmitters?per_page=2&page=2' }
+        data:
+          - uuid: 'aaaabbbb-1111-2222-3333-444455556666'
+            norad_cat_id: 25544
+            description: 'ISS APRS digipeater'
+            mode: AFSK
+            baud: 1200
+            type: Transmitter
+            status: active
+            alive: true
+            uplink_low: 145825000
+            downlink_low: 145825000
+            updated: '2026-09-10T12:00:00.000000Z'
+          - uuid: 'ccccdddd-1111-2222-3333-444455556666'
+            norad_cat_id: 43017
+            description: 'AO-91 FM transponder'
+            mode: FM
+            baud: 0
+            type: Transponder
+            status: active
+            alive: true
+            uplink_low: 435250000
+            downlink_low: 145960000
+            updated: '2026-09-11T12:00:00.000000Z'
+
+    AmsatStatusPage:
+      summary: AMSAT live status page
+      value:
+        meta:
+          service: Satellite Data API
+          version: 2.2.0
+          api_version: v1
+          generated: '2026-09-20T05:57:49Z'
+          request_id: 'req_b8285e86a79a7ede'
+          elapsed_ms: 208
+          count: 2
+          total: 4
+          source: { id: amsat_status, label: AMSAT Status Reports, url: 'https://www.amsat.org/status/', attribution: AMSAT, cache: HIT, age_seconds: 5, ttl: 3600 }
+          warnings: []
+          pagination: { page: 1, per_page: 2, total: 4, total_pages: 2, has_more: true }
+        data:
+          - { status: Heard, callsign: VK2ABC, grid: QF56, satellite: AO-7, norad_id: '07530', timestamp: '2026-09-15T13:05:00Z', timestamp_unix: 1789477500 }
+          - { status: Heard, callsign: N0CALL, grid: EM12, satellite: AO-91, norad_id: '43017', timestamp: '2026-09-15T12:34:00Z', timestamp_unix: 1789475640 }
+
+    MetaDocument:
+      summary: Service metadata document
+      value:
+        meta:
+          service: Satellite Data API
+          version: 2.2.0
+          api_version: v1
+          generated: '2026-09-20T05:57:52Z'
+          request_id: 'req_38fbd9951cc25301'
+          elapsed_ms: 155
+          count: 7
+        data:
+          service:
+            name: Satellite Data API
+            version: 2.2.0
+            api_version: v1
+            description: 'Unified TLE and satellite metadata proxy (CelesTrak, AMSAT, SatNOGS).'
+            homepage: 'https://satellite.api.authskin.xyz'
+            docs: /docs.html
+            openapi: /openapi.yaml
+            status_page: /v1/status
+            license: 'Data: public sources. API code: MIT.'
+            contact: 'https://community.libre.space/'
+            build: local
+          endpoints:
+            - { path: /v1/tle, methods: [GET, HEAD], id: tle_merge }
+            - { path: '/v1/tle/{source}', methods: [GET, HEAD], id: tle_source }
+            - { path: /v1/satellites, methods: [GET, HEAD], id: satnogs_satellites }
+            - { path: /v1/maintenance, methods: [POST], id: maintenance_write }
+          legacy_routes: [tle_merge, tle_weather, tle_amateur, tle_amsat, tle_satnogs, satnogs_satellites, satnogs_transmitters, amsat_status, health, status]
+          sources:
+            - { id: weather, label: CelesTrak Weather, url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=weather&FORMAT=tle', cache_ttl: 10800, parser: tle-text, attribution: 'CelesTrak (Dr. T.S. Kelso)' }
+            - { id: amsat, label: AMSAT Daily TLE, url: 'https://www.amsat.org/tle/dailytile.txt', cache_ttl: 43200, parser: tle-text, attribution: AMSAT }
+            - { id: satnogs_satellites, label: SatNOGS Satellites, url: 'https://db.satnogs.org/api/satellites/', cache_ttl: 21600, parser: json, attribution: 'SatNOGS DB (libre.space)' }
+            - { id: amsat_status, label: AMSAT Status Reports, url: 'https://www.amsat.org/status/', cache_ttl: 3600, parser: amsat-status-html, attribution: AMSAT }
+          limits:
+            rate_limit_enabled: false
+            rate_limit_per_minute: 120
+            max_per_page: 1000
+            compression: true
+            max_request_bytes: 33554432
+          errors:
+            bad_request: 'Malformed or contradictory query parameters.'
+            not_found: 'Unknown route or unknown resource identifier.'
+            method_not_allowed: 'HTTP method not supported on this route.'
+            maintenance: 'The endpoint is temporarily disabled by an operator.'
+            upstream_unavailable: 'All upstream providers failed and no cache was usable.'
+          cache_backend: file
+          maintenance:
+            tle_merge: { endpoint: tle_merge, enabled: false, message: '', source: '' }
+            tle_weather: { endpoint: tle_weather, enabled: false, message: '', source: '' }
+            amsat_status: { endpoint: amsat_status, enabled: false, message: '', source: '' }
+            health: { endpoint: health, enabled: false, message: '', source: '' }
+          links: { self: /v1/meta, docs: /docs.html, openapi: /openapi.yaml, status: /v1/status, health: /v1/health, ready: /v1/health/ready, sources: '/v1/tle/{source}' }
+
+    HealthOk:
+      summary: Fully healthy service
+      value:
+        status: ok
+        overall: ok
+        timestamp: '2026-09-20 05:57:50 UTC'
+        generated: '2026-09-20T05:57:50Z'
+        service: Satellite API Proxy v2.2.0
+        version: 2.2.0
+        api_version: v1
+        uptime_seconds: 864213
+        checks:
+          redis: connected
+          storage: { backend: file, cache_dir: /app/var/cache, cache_dir_writable: true, redis_ext: false }
+          cache_files:
+            tle_merge: { exists: true, age_seconds: 6, age_human: '6s', size: 4170, fresh: true, sources: 4 }
+            weather: { exists: true, age_seconds: 6, age_human: '6s', size: 1139, fresh: true, ttl: 10800, backend: file }
+            satnogs_transmitters: { exists: true, age_seconds: 6, age_human: '6s', size: 1084, fresh: true, ttl: 21600, backend: file }
+          maintenance:
+            tle_weather: { endpoint: tle_weather, enabled: false, message: '', source: '' }
+            health: { endpoint: health, enabled: false, message: '', source: '' }
+        metrics:
+          totals: { requests: 18422, errors: 37, avg_ms: 38.4, bytes: 92045122 }
+          endpoints:
+            tle_merge: { requests: 9120, errors: 12, avg_ms: 44.6, cache: { HIT: 9080, MISS: 40 }, last_status: 200, last_seen_at: 1789883870 }
+            satnogs_transmitters: { requests: 611, errors: 1, avg_ms: 96.2, cache: { HIT: 611 }, last_status: 200, last_seen_at: 1789883870 }
+          upstream:
+            weather: { ok: 412, fail: 3, last_ms: 241, last_ok_at: 1789883861, last_fail_at: 1789876323, last_error: '' }
+            amsat: { ok: 402, fail: 0, last_ms: 118, last_ok_at: 1789883100, last_fail_at: 0, last_error: '' }
+
+    HealthDegraded:
+      summary: 'Degraded service (stale caches, Redis extension missing)'
+      value:
+        status: degraded
+        overall: degraded
+        timestamp: '2026-09-20 05:57:50 UTC'
+        generated: '2026-09-20T05:57:50Z'
+        service: Satellite API Proxy v2.2.0
+        version: 2.2.0
+        api_version: v1
+        uptime_seconds: 0
+        checks:
+          redis: extension_not_loaded
+          storage: { backend: file, cache_dir: /app/tests/tmp/cache, cache_dir_writable: true, redis_ext: false }
+          cache_files:
+            tle_merge: { exists: true, age_seconds: 6, age_human: '6s', size: 4170, fresh: true, sources: 4 }
+            weather: { exists: true, age_seconds: 6, age_human: '6s', size: 1139, fresh: true, ttl: 10800, backend: file }
+            amsat_status: { exists: true, age_seconds: 6, age_human: '6s', size: 880, fresh: true, ttl: 3600, backend: file }
+          maintenance:
+            tle_weather: { endpoint: tle_weather, enabled: false, message: '', source: '' }
+        metrics:
+          totals: { requests: 0, errors: 0, avg_ms: 0, bytes: 0 }
+          endpoints: []
+          upstream: []
+
+    HealthLive:
+      summary: Liveness probe payload
+      value: { status: ok, check: liveness, timestamp: '2026-09-20T05:57:51Z', uptime_seconds: 0 }
+
+    HealthReady:
+      summary: Readiness probe payload (ready)
+      value:
+        status: ok
+        check: readiness
+        timestamp: '2026-09-20T05:57:51Z'
+        overall: degraded
+        redis: extension_not_loaded
+        caches:
+          tle_merge: fresh
+          weather: fresh
+          amateur: fresh
+          amsat: fresh
+          satnogs: fresh
+          satnogs_satellites: fresh
+          satnogs_transmitters: fresh
+          amsat_status: fresh
+          tle_weather: fresh
+          tle_amateur: fresh
+          tle_amsat: fresh
+          tle_satnogs: fresh
+
+    HealthReadyUnavailable:
+      summary: Readiness problem document (no usable data)
+      value:
+        type: 'https://satellite.api.authskin.xyz/errors/upstream-unavailable'
+        title: Service Unavailable
+        status: 503
+        detail: 'No TLE data could be assembled from any upstream provider.'
+        code: upstream_unavailable
+        instance: /v1/health/ready
+        request_id: 'req_1696e82467a7ea80'
+        sources: [{ id: weather, label: CelesTrak Weather, count: 0, ok: false, cache: EXPIRED, age_seconds: 0, error: 'the PHP cURL extension is not installed' }]
+        hint: 'Cached data is served automatically whenever it exists; this response means even the stale copy was unavailable.'
+
+    HealthDashboard:
+      summary: HTML status dashboard (snippet)
+      value: |
+        <!doctype html>
+        <html lang="en">
+          <head><meta charset="utf-8"><title>Satellite Data API - status</title></head>
+          <body>
+            <h1>Satellite Data API 2.2.0</h1>
+            <p>status: <strong>ok</strong> | overall: ok | uptime: 10d 0h 3m</p>
+            <table>
+              <tr><th>cache</th><th>age</th><th>ttl</th><th>fresh</th></tr>
+              <tr><td>tle_weather</td><td>12m 30s</td><td>7200s</td><td>yes</td></tr>
+              <tr><td>amsat_status</td><td>1h 10m</td><td>3600s</td><td>no</td></tr>
+            </table>
+          </body>
+        </html>
+
+    MaintenanceList:
+      summary: Maintenance state of every endpoint
+      value:
+        meta:
+          service: Satellite Data API
+          version: 2.2.0
+          api_version: v1
+          generated: '2026-09-20T05:57:53Z'
+          request_id: 'req_fd315bae61ef60ba'
+          elapsed_ms: 148
+          writable: false
+          hint: 'Maintenance writes are disabled: set SATAPI_ADMIN_TOKEN (config admin.token) to enable them.'
+        data:
+          - { endpoint: tle_merge, enabled: false, message: '', source: '' }
+          - { endpoint: tle_weather, enabled: false, message: '', source: '' }
+          - { endpoint: tle_amateur, enabled: false, message: '', source: '' }
+          - { endpoint: tle_amsat, enabled: false, message: '', source: '' }
+          - { endpoint: tle_satnogs, enabled: false, message: '', source: '' }
+          - { endpoint: satnogs_satellites, enabled: false, message: '', source: '' }
+          - { endpoint: satnogs_transmitters, enabled: false, message: '', source: '' }
+          - { endpoint: amsat_status, enabled: false, message: '', source: '' }
+          - { endpoint: health, enabled: false, message: '', source: '' }
+
+    MaintenanceEnableOne:
+      summary: Enable maintenance for one endpoint
+      value: { endpoint: tle_weather, enabled: true, message: 'Planned CelesTrak upstream rework; try again in an hour.', ttl: 3600 }
+
+    MaintenanceEnableAll:
+      summary: Enable maintenance for every endpoint
+      value: { endpoint: all, enabled: true, message: 'Emergency upstream rework in progress.', ttl: 1800 }
+
+    MaintenanceApplied:
+      summary: Applied maintenance state
+      value:
+        meta:
+          service: Satellite Data API
+          version: 2.2.0
+          api_version: v1
+          generated: '2026-09-20T05:57:53Z'
+          request_id: 'req_fd315bae61ef60ba'
+          elapsed_ms: 7
+          applied_by: '203.0.113.7'
+        data:
+          endpoints: [tle_weather]
+          enabled: true
+          ttl: 3600
+          until: '2026-09-20T06:57:53Z'
+          state:
+            - { endpoint: tle_merge, enabled: false, message: '', source: '' }
+            - { endpoint: tle_weather, enabled: true, message: 'Planned CelesTrak upstream rework; try again in an hour.', source: file }
+            - { endpoint: health, enabled: false, message: '', source: '' }
+
+    LegacySatelliteArray:
+      summary: Complete upstream SatNOGS satellite array (pre-v1)
+      value:
+        - sat_id: 'SCHX-0895-2361-9925-0309'
+          norad_cat_id: 965
+          name: TRANSIT 5B-5
+          names: 'OPS 6582'
+          status: in orbit
+          launched: '1964-12-13T00:00:00Z'
+          operator: 'None'
+          countries: US
+          image: 'satellites/transit-o__1.jpg'
+          citation: 'https://secwww.jhuapl.edu/techdigest/'
+          updated: '2024-09-16T18:41:03.363197Z'
+        - sat_id: 'AAAA-1111-2222-3333-4444'
+          norad_cat_id: 25544
+          name: ISS (ZARYA)
+          names: 'ISS, ZARYA'
+          status: in orbit
+          launched: '1998-11-20T00:00:00Z'
+          operator: NASA
+          countries: US
+          updated: '2026-09-15T10:00:00.000000Z'
+
+    LegacyTransmitterArray:
+      summary: Complete upstream SatNOGS transmitter array (pre-v1)
+      value:
+        - uuid: 'aaaabbbb-1111-2222-3333-444455556666'
+          norad_cat_id: 25544
+          description: 'ISS APRS digipeater'
+          mode: AFSK
+          baud: 1200
+          type: Transmitter
+          status: active
+          alive: true
+          uplink_low: 145825000
+          downlink_low: 145825000
+          updated: '2026-09-10T12:00:00.000000Z'
+        - uuid: 'ccccdddd-1111-2222-3333-444455556666'
+          norad_cat_id: 43017
+          description: 'AO-91 FM transponder'
+          mode: FM
+          baud: 0
+          type: Transponder
+          status: active
+          alive: true
+          uplink_low: 435250000
+          downlink_low: 145960000
+          updated: '2026-09-11T12:00:00.000000Z'
+
+    LegacyAmsatStatus:
+      summary: Historical AMSAT status envelope (pre-v1)
+      value:
+        status: success
+        generated: '2026-09-20 05:57:58 UTC'
+        total_reports: 4
+        data:
+          - { status: Heard, callsign: VK2ABC, grid: QF56, timestamp: '2026-09-15 13:05:00', satellite: AO-7, norad_id: '07530' }
+          - { status: Heard, callsign: N0CALL, grid: EM12, timestamp: '2026-09-15 12:34:00', satellite: AO-91, norad_id: '43017' }
+          - { status: Not Heard, callsign: JA1ABC, grid: PM95, timestamp: '2026-09-15 12:00:15', satellite: AO-7, norad_id: '07530' }
+          - { status: Heard, callsign: W1AW, grid: FN31, timestamp: '2026-09-14 23:59:00', satellite: ISS, norad_id: '25544' }
+
+    ProblemBadRequest:
+      summary: Invalid format parameter
+      value:
+        type: 'https://satellite.api.authskin.xyz/errors/bad-request'
+        title: Bad Request
+        status: 400
+        detail: 'Unsupported format. Use format=tle (text/plain) or format=json.'
+        code: bad_request
+        instance: /v1/tle
+        request_id: 'req_2b126e291781b5f2'
+        parameter: format
+
+    ProblemNotFound:
+      summary: Unknown route or source segment
+      value:
+        type: 'https://satellite.api.authskin.xyz/errors/not-found'
+        title: Not Found
+        status: 404
+        detail: 'No route matches /v1/nope. See /v1/meta for the endpoint index.'
+        code: not_found
+        instance: /v1/nope
+        request_id: 'req_990c37cbed355be3'
+
+    ProblemMethodNotAllowed:
+      summary: Unsupported method
+      value:
+        type: 'https://satellite.api.authskin.xyz/errors/method-not-allowed'
+        title: Method Not Allowed
+        status: 405
+        detail: 'The DELETE method is not supported on /v1/tle.'
+        code: method_not_allowed
+        instance: /v1/tle
+        request_id: 'req_e17491f8dbb1ece2'
+        allow: [GET, HEAD, OPTIONS]
+
+    ProblemMaintenance:
+      summary: Endpoint in maintenance
+      value:
+        type: 'https://satellite.api.authskin.xyz/errors/maintenance'
+        title: Service Unavailable
+        status: 503
+        detail: 'Scheduled upgrade window'
+        code: maintenance
+        instance: /v1/tle/weather
+        request_id: 'req_a68707723b68e550'
+        maintenance: { endpoint: tle_weather, retry_after: 120, until: null }
+
+    ProblemUpstreamUnavailable:
+      summary: All relevant upstreams unreachable
+      value:
+        type: 'https://satellite.api.authskin.xyz/errors/upstream-unavailable'
+        title: Service Unavailable
+        status: 503
+        detail: 'No TLE data could be assembled from any upstream provider.'
+        code: upstream_unavailable
+        instance: /v1/tle
+        request_id: 'req_1696e82467a7ea80'
+        sources:
+          - { id: weather, label: CelesTrak Weather, count: 0, ok: false, cache: EXPIRED, age_seconds: 0, error: 'the PHP cURL extension is not installed' }
+          - { id: satnogs, label: SatNOGS DB TLE, count: 0, ok: false, cache: EXPIRED, age_seconds: 0, error: 'the PHP cURL extension is not installed' }
+        hint: 'Cached data is served automatically whenever it exists; this response means even the stale copy was unavailable.'
+
+    ProblemAdminDisabled:
+      summary: Admin surface disabled (no token configured)
+      value:
+        type: 'https://satellite.api.authskin.xyz/errors/unauthorized'
+        title: Service Unavailable
+        status: 503
+        detail: 'Maintenance writes are disabled: no admin token is configured.'
+        code: unauthorized
+        instance: /v1/maintenance
+        request_id: 'req_7c1f0a4b55de9012'
+
+    ProblemUnauthorized:
+      summary: Missing or wrong bearer token
+      value:
+        type: 'https://satellite.api.authskin.xyz/errors/unauthorized'
+        title: Unauthorized
+        status: 401
+        detail: 'A valid admin bearer token is required.'
+        code: unauthorized
+        instance: /v1/maintenance
+        request_id: 'req_5a8d3e2c71b4f60a'
+
+    ProblemPayloadTooLarge:
+      summary: Request body too large
+      value:
+        type: 'https://satellite.api.authskin.xyz/errors/payload-too-large'
+        title: Payload Too Large
+        status: 413
+        detail: 'Request body exceeded the accepted size.'
+        code: payload_too_large
+        instance: /v1/maintenance
+        request_id: 'req_9b2c7f1e4d80a356'
+
+    ProblemRateLimited:
+      summary: Rate limit exceeded
+      value:
+        type: 'https://satellite.api.authskin.xyz/errors/rate-limited'
+        title: Too Many Requests
+        status: 429
+        detail: 'Client exceeded the configured request budget.'
+        code: rate_limited
+        instance: '/v1/tle?limit=20000'
+        request_id: 'req_3e6f1d9a2c74b508'
+        rate_limit: { limit: 600, remaining: 0, reset: 1717243200 }
+
+    ProblemInternalError:
+      summary: Unexpected server failure
+      value:
+        type: 'https://satellite.api.authskin.xyz/errors/internal-error'
+        title: Internal Server Error
+        status: 500
+        detail: 'Unexpected server-side failure.'
+        code: internal_error
+        instance: '/v1/transmitters?all=1'
+        request_id: 'req_c40b8a17f5e29d63'

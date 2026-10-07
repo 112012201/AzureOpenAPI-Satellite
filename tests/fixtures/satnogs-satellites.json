@@ -1,0 +1,37 @@
+[
+  {
+    "sat_id": "SCHX-0895-2361-9925-0309",
+    "norad_cat_id": 965,
+    "name": "TRANSIT 5B-5",
+    "names": "OPS 6582",
+    "status": "in orbit",
+    "launched": "1964-12-13T00:00:00Z",
+    "operator": "None",
+    "countries": "US",
+    "image": "satellites/transit-o__1.jpg",
+    "citation": "https://secwww.jhuapl.edu/techdigest/",
+    "updated": "2024-09-16T18:41:03.363197Z"
+  },
+  {
+    "sat_id": "AAAA-1111-2222-3333-4444",
+    "norad_cat_id": 25544,
+    "name": "ISS (ZARYA)",
+    "names": "ISS, ZARYA",
+    "status": "in orbit",
+    "launched": "1998-11-20T00:00:00Z",
+    "operator": "NASA",
+    "countries": "US",
+    "updated": "2026-09-15T10:00:00.000000Z"
+  },
+  {
+    "sat_id": "BBBB-5555-6666-7777-8888",
+    "norad_cat_id": 43017,
+    "name": "AO-91 (FOX-1B)",
+    "names": "AO-91",
+    "status": "in orbit",
+    "launched": "2017-11-18T00:00:00Z",
+    "operator": "AMSAT",
+    "countries": "US",
+    "updated": "2026-09-01T10:00:00.000000Z"
+  }
+]

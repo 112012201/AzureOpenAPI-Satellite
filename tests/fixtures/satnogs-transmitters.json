@@ -1,0 +1,41 @@
+[
+  {
+    "uuid": "aaaabbbb-1111-2222-3333-444455556666",
+    "norad_cat_id": 25544,
+    "description": "ISS APRS digipeater",
+    "mode": "AFSK",
+    "baud": 1200,
+    "type": "Transmitter",
+    "status": "active",
+    "alive": true,
+    "uplink_low": 145825000,
+    "downlink_low": 145825000,
+    "updated": "2026-09-10T12:00:00.000000Z"
+  },
+  {
+    "uuid": "ccccdddd-1111-2222-3333-444455556666",
+    "norad_cat_id": 43017,
+    "description": "AO-91 FM transponder",
+    "mode": "FM",
+    "baud": 0,
+    "type": "Transponder",
+    "status": "active",
+    "alive": true,
+    "uplink_low": 435250000,
+    "downlink_low": 145960000,
+    "updated": "2026-09-11T12:00:00.000000Z"
+  },
+  {
+    "uuid": "eeeeffff-1111-2222-3333-444455556666",
+    "norad_cat_id": 965,
+    "description": "Transit 5B-5 legacy beacon",
+    "mode": "CW",
+    "baud": 20,
+    "type": "Transmitter",
+    "status": "inactive",
+    "alive": false,
+    "uplink_low": null,
+    "downlink_low": 136500000,
+    "updated": "2024-01-01T00:00:00.000000Z"
+  }
+]

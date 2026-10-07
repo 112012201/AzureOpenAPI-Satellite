@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <title>404 - Not found | Satellite Data API</title>
+    <style>
+        :root { color-scheme: light dark; --bg:#f6f7f9; --fg:#111827; --muted:#6b7280; --card:#fff; --line:#e5e7eb; --accent:#0891b2; }
+        @media (prefers-color-scheme: dark) { :root { --bg:#070c17; --fg:#e2e8f0; --muted:#94a3b8; --card:#0f172a; --line:#1e293b; --accent:#22d3ee; } }
+        * { box-sizing: border-box; }
+        body { margin:0; min-height:100vh; display:grid; place-items:center; padding:24px; background:var(--bg); color:var(--fg);
+               font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans SC","Microsoft YaHei",sans-serif; }
+        .card { max-width:620px; width:100%; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:32px; }
+        h1 { margin:0 0 8px; font-size:1.5rem; }
+        p { margin:0 0 14px; color:var(--muted); }
+        ul { margin:0 0 16px; padding-left:20px; }
+        a { color:var(--accent); }
+        code { background:color-mix(in srgb, var(--fg) 8%, transparent); padding:2px 6px; border-radius:6px; }
+    </style>
+</head>
+<body>
+<main class="card">
+    <h1>404 &middot; Not found</h1>
+    <p>There is no resource at this address. The API surface every client should use:</p>
+    <ul>
+        <li><code>GET /v1/tle</code> &mdash; merged TLE feed (text or JSON)</li>
+        <li><code>GET /v1/satellites</code>, <code>GET /v1/transmitters</code> &mdash; SatNOGS catalogue</li>
+        <li><code>GET /v1/amsat/status</code> &mdash; AMSAT live reports</li>
+        <li><code>GET /v1/health</code>, <code>GET /v1/status</code> &mdash; health and dashboard</li>
+        <li><code>GET /v1/meta</code> &mdash; service metadata and the endpoint index</li>
+    </ul>
+    <p>
+        <a href="/docs.html">API reference</a> &middot;
+        <a href="/openapi.yaml">OpenAPI 3.1</a> &middot;
+        <a href="/v1/status">Status</a> &middot;
+        <a href="/">Overview</a>
+    </p>
+</main>
+</body>
+</html>

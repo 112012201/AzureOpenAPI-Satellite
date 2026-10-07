@@ -1,0 +1,353 @@
+<?php
+
+namespace SatApi\Http;
+
+use SatApi\Config;
+
+/**
+ * Read-only view over the incoming request.
+ */
+final class Request
+{
+    /** @var array<string,string> */
+    private $headers = array();
+
+    private $method = 'GET';
+    private $path = '/';
+    private $query = array();
+    private $rawQuery = '';
+    private $body = null;
+    private $requestId = '';
+
+    public static function capture()
+    {
+        $request = new self();
+        $request->method = strtoupper(isset($_SERVER['REQUEST_METHOD']) ? (string) $_SERVER['REQUEST_METHOD'] : 'GET');
+        $request->rawQuery = isset($_SERVER['QUERY_STRING']) ? (string) $_SERVER['QUERY_STRING'] : '';
+        parse_str($request->rawQuery, $request->query);
+
+        $uri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '/';
+        $path = parse_url($uri, PHP_URL_PATH);
+        $request->path = self::normalizePath(is_string($path) ? $path : '/');
+
+        foreach ($_SERVER as $key => $value) {
+            if (strncmp($key, 'HTTP_', 5) === 0) {
+                $name = strtolower(str_replace('_', '-', substr($key, 5)));
+                $request->headers[$name] = (string) $value;
+            }
+        }
+        if (isset($_SERVER['CONTENT_TYPE'])) {
+            $request->headers['content-type'] = (string) $_SERVER['CONTENT_TYPE'];
+        }
+        if (isset($_SERVER['CONTENT_LENGTH'])) {
+            $request->headers['content-length'] = (string) $_SERVER['CONTENT_LENGTH'];
+        }
+
+        $request->requestId = self::sanitizeRequestId(
+            isset($request->headers['x-request-id']) ? $request->headers['x-request-id'] : ''
+        );
+
+        return $request;
+    }
+
+    private static function normalizePath($path)
+    {
+        $path = '/' . ltrim((string) $path, '/');
+        // Collapse duplicate slashes and resolve the few dot segments we allow.
+        $path = preg_replace('#/+#', '/', $path);
+        if ($path === '' || $path === false) {
+            $path = '/';
+        }
+        if (strlen($path) > 1) {
+            $path = rtrim($path, '/');
+        }
+
+        return $path === '' ? '/' : $path;
+    }
+
+    private static function sanitizeRequestId($value)
+    {
+        $value = trim((string) $value);
+        if ($value === '' || !preg_match('/^[A-Za-z0-9._-]{1,64}$/', $value)) {
+            return self::generateRequestId();
+        }
+
+        return $value;
+    }
+
+    public static function generateRequestId()
+    {
+        try {
+            $bytes = random_bytes(8);
+        } catch (\Exception $e) {
+            $bytes = pack('N2', mt_rand(), mt_rand());
+        }
+
+        return 'req_' . bin2hex($bytes);
+    }
+
+    public function method()
+    {
+        return $this->method;
+    }
+
+    public function path()
+    {
+        return $this->path;
+    }
+
+    public function queryString()
+    {
+        return $this->rawQuery;
+    }
+
+    public function requestId()
+    {
+        return $this->requestId;
+    }
+
+    public function header($name, $default = null)
+    {
+        $name = strtolower((string) $name);
+
+        return isset($this->headers[$name]) ? $this->headers[$name] : $default;
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    public function all()
+    {
+        return $this->query;
+    }
+
+    /**
+     * Query parameter access with type coercion.
+     *
+     * @param string $key
+     * @param mixed  $default
+     * @return mixed
+     */
+    public function param($key, $default = null)
+    {
+        if (!array_key_exists($key, $this->query)) {
+            return $default;
+        }
+        $value = $this->query[$key];
+        if (is_array($value)) {
+            return $default;
+        }
+
+        return $value;
+    }
+
+    public function bool($key, $default = false)
+    {
+        $value = $this->param($key, null);
+        if ($value === null) {
+            return $default;
+        }
+
+        return in_array(strtolower((string) $value), array('1', 'true', 'yes', 'on', ''), true);
+    }
+
+    public function int($key, $default = 0, $min = null, $max = null)
+    {
+        $value = $this->param($key, null);
+        if ($value === null || !is_numeric($value)) {
+            return $default;
+        }
+        $value = (int) $value;
+        if ($min !== null && $value < $min) {
+            $value = $min;
+        }
+        if ($max !== null && $value > $max) {
+            $value = $max;
+        }
+
+        return $value;
+    }
+
+    /**
+     * Comma separated list parameter, e.g. ?norad=25544,43017
+     *
+     * @return string[]
+     */
+    public function list($key)
+    {
+        $value = $this->param($key, '');
+        if (!is_string($value) || trim($value) === '') {
+            return array();
+        }
+        $parts = array_map('trim', explode(',', $value));
+        $parts = array_filter($parts, static function ($item) {
+            return $item !== '';
+        });
+
+        return array_values($parts);
+    }
+
+    /**
+     * Whether the caller prefers JSON. `?format=json` always wins.
+     */
+    public function wantsJson($default = false)
+    {
+        $format = strtolower((string) $this->param('format', ''));
+        if ($format !== '') {
+            return in_array($format, array('json', 'application/json'), true);
+        }
+
+        $accept = strtolower((string) $this->header('accept', ''));
+        if ($accept === '' || $accept === '*/*') {
+            return $default;
+        }
+
+        $jsonPos = strpos($accept, 'application/json');
+        $htmlPos = strpos($accept, 'text/html');
+        $textPos = strpos($accept, 'text/plain');
+
+        if ($jsonPos !== false && ($textPos === false || $jsonPos < $textPos)) {
+            return true;
+        }
+        if ($textPos !== false) {
+            return false;
+        }
+        if ($htmlPos !== false) {
+            return false;
+        }
+
+        return $default;
+    }
+
+    /**
+     * `?format=` normalised to one of: tle, json, txt, ndjson.
+     */
+    public function format($allowed = array('tle', 'json'))
+    {
+        $format = strtolower(trim((string) $this->param('format', '')));
+        if ($format === '') {
+            return $this->wantsJson() ? 'json' : $allowed[0];
+        }
+        $aliases = array(
+            'application/json' => 'json',
+            'text/plain'       => 'tle',
+            'plain'            => 'tle',
+            'text'             => 'txt',
+        );
+        if (isset($aliases[$format])) {
+            $format = $aliases[$format];
+        }
+        if (!in_array($format, $allowed, true)) {
+            return null; // caller turns this into a 400 problem response
+        }
+
+        return $format;
+    }
+
+    public function acceptsGzip()
+    {
+        $encoding = strtolower((string) $this->header('accept-encoding', ''));
+
+        return strpos($encoding, 'gzip') !== false;
+    }
+
+    public function ifNoneMatch()
+    {
+        return trim((string) $this->header('if-none-match', ''));
+    }
+
+    public function ifModifiedSince()
+    {
+        $value = trim((string) $this->header('if-modified-since', ''));
+        if ($value === '') {
+            return 0;
+        }
+        $time = strtotime($value);
+
+        return $time === false ? 0 : (int) $time;
+    }
+
+    /**
+     * Client IP, honouring X-Forwarded-For only when explicitly trusted
+     * (the CDN / reverse proxy sets it).
+     */
+    public function ip()
+    {
+        if ((bool) Config::get('ratelimit.trust_proxy', false)) {
+            $forwarded = (string) $this->header('x-forwarded-for', '');
+            if ($forwarded !== '') {
+                $first = trim(explode(',', $forwarded)[0]);
+                if ($first !== '' && preg_match('/^[0-9a-fA-F:.]{3,45}$/', $first)) {
+                    return $first;
+                }
+            }
+            $real = (string) $this->header('x-real-ip', '');
+            if ($real !== '' && preg_match('/^[0-9a-fA-F:.]{3,45}$/', $real)) {
+                return $real;
+            }
+        }
+
+        return isset($_SERVER['REMOTE_ADDR']) ? (string) $_SERVER['REMOTE_ADDR'] : '0.0.0.0';
+    }
+
+    public function userAgent()
+    {
+        return substr((string) $this->header('user-agent', ''), 0, 255);
+    }
+
+    public function isBrowser()
+    {
+        $accept = strtolower((string) $this->header('accept', ''));
+        if (strpos($accept, 'text/html') !== false) {
+            return true;
+        }
+        $ua = strtolower($this->userAgent());
+
+        return strpos($ua, 'mozilla') !== false && strpos($accept, 'application/json') === false;
+    }
+
+    public function rawBody()
+    {
+        if ($this->body === null) {
+            $this->body = (string) file_get_contents('php://input');
+        }
+
+        return $this->body;
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    public function jsonBody()
+    {
+        $raw = $this->rawBody();
+        if ($raw === '') {
+            return array();
+        }
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? $decoded : array();
+    }
+
+    /**
+     * Absolute URL of the current request (used for JSON-LD / problem type URIs).
+     */
+    public function selfUrl()
+    {
+        $host = (string) $this->header('host', '');
+        $scheme = 'http';
+        if ((string) $this->header('x-forwarded-proto', '') !== '') {
+            $scheme = strtolower(explode(',', (string) $this->header('x-forwarded-proto'))[0]);
+        } elseif (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== '' && $_SERVER['HTTPS'] !== 'off') {
+            $scheme = 'https';
+        }
+        $host = $host !== '' ? $host : 'localhost';
+
+        return $scheme . '://' . $host . $this->path;
+    }
+
+    public function baseUrl()
+    {
+        return rtrim(str_replace($this->path, '', $this->selfUrl()), '/');
+    }
+}
