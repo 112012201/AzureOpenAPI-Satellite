@@ -212,13 +212,91 @@
     return document.querySelector('[data-boot]');
   }
 
+  /*
+   * The figure ROLLS through every integer on its way to the target.
+   *
+   * Tasks finish in steps, so the raw values jump (0 -> 33 -> 67 -> 100) and assigning
+   * them directly made the number snap between them. The operator asked for the values
+   * in between -- 40, 41, 42, 43, 44, 45 -- so the display is animated separately from
+   * the target: it walks toward the target and renders each integer it passes, which
+   * also makes it independent of the step size. A task finishing at 60% from 10% shows
+   * every value from 10 to 60.
+   *
+   * Every integer is rendered even when the walk rate is faster than a frame, so the
+   * count never skips a value at the end of a long step.
+   */
+  var BOOT_ROLL_PER_SECOND = 52;
+  var bootTarget = 0;
+  var bootShown = 0;
+  var bootRollTimer = null;
+
+  /*
+   * Every value the roll actually paints is also recorded on
+   * `window.__SATAPI_BOOT_ROLL__`.
+   *
+   * This exists because the DOM cannot answer "did it skip a value": a
+   * MutationObserver delivers batched records, so several writes inside one frame
+   * collapse into one entry showing only the last. That made a correct roll look like
+   * it was jumping (measured: "3 -> 6 -> 8 -> 12") and hid the real sequence. The log is
+   * the paint order itself, so it is the only honest source for that question. It is
+   * bounded and harmless in production, and it is the handle to read if the count ever
+   * looks wrong again.
+   */
+  var bootPaintLog = [];
+
+  function paintFigure(value) {
+    var figure = document.querySelector('[data-boot-figure]');
+    if (figure) { figure.textContent = String(value); }
+    if (bootPaintLog.length < 400) { bootPaintLog.push(value); }
+    window.__SATAPI_BOOT_ROLL__ = bootPaintLog;
+  }
+
+  function stepRoll() {
+    var now = Date.now();
+    var delta = BOOT_ROLL_PER_SECOND * (now - (stepRoll.last || now)) / 1000;
+    stepRoll.last = now;
+    if (bootShown < bootTarget) {
+      var next = Math.min(bootTarget, bootShown + Math.max(delta, 1));
+      // Paint each whole number that the step crossed, so nothing is skipped.
+      for (var v = Math.floor(bootShown) + 1; v <= Math.floor(next); v++) {
+        if (v > bootShown) { paintFigure(v); }
+      }
+      bootShown = next;
+    } else if (bootShown > bootTarget) {
+      bootShown = bootTarget;
+      paintFigure(Math.floor(bootShown));
+    }
+    if (Math.abs(bootShown - bootTarget) < 0.5) {
+      bootShown = bootTarget;
+      paintFigure(Math.floor(bootShown));
+      bootRollTimer = null;
+      return;
+    }
+    bootRollTimer = window.requestAnimationFrame(stepRoll);
+  }
+
+  function startRoll() {
+    if (bootRollTimer !== null) { return; }
+    stepRoll.last = Date.now();
+    bootRollTimer = window.requestAnimationFrame(stepRoll);
+  }
+
   function setProgress(percent) {
     var value = Math.max(0, Math.min(100, Math.round(percent)));
     var bar = document.querySelector('[data-boot-bar]');
     var fill = document.querySelector('[data-boot-fill]');
-    var figure = document.querySelector('[data-boot-figure]');
     if (bar) {
       bar.setAttribute('aria-valuenow', String(value));
+    }
+    // The bar follows the value directly; only the numeral rolls.
+    bootTarget = value;
+    if (value >= 100) {
+      // Nothing to animate on the last step, and the screen is about to be covered.
+      bootShown = 100;
+      paintFigure(100);
+      bootRollTimer = null;
+    } else {
+      startRoll();
     }
     if (fill) {
       /*
@@ -232,9 +310,6 @@
        * 33% and at 67% progress, which is how this was found.
        */
       document.documentElement.style.setProperty('--boot-progress', String(value / 100));
-    }
-    if (figure) {
-      figure.textContent = String(value);
     }
   }
 

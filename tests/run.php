@@ -1169,8 +1169,27 @@ T::truthy(
 T::truthy((bool) preg_match('#\.boot__progress\s*\{[^}]*width:\s*6px#s', $loaderRules), 'phase 2: a 6px vertical rail');
 T::truthy((bool) preg_match('#\.boot__progressBar\s*\{[^}]*scaleY\(#s', $loaderRules), 'phase 2: the bar scales vertically');
 T::truthy((bool) preg_match('#\.boot__progressBar\s*\{[^}]*transform-origin:\s*center top#s', $loaderRules), 'phase 2: the bar grows from the top');
-T::truthy(strpos($loaderRules, 'scaleX') === false, 'phase 2: no horizontal scaling anywhere in the screen');
-T::truthy(strpos($loaderRules, 'translateX') === false, 'phase 2: no horizontal translation anywhere in the screen');
+// The two axes are deliberate and opposite, so assert each where it belongs rather than
+// banning one globally. The rail is vertical (reproducing the reference's `height: %`),
+// and the exit band is horizontal (reproducing the reference's `transform-origin: left;
+// transform: scaleX(0)`). An earlier revision made BOTH vertical, which was wrong on the
+// band: every client's ending is a left-to-right sweep.
+$bandRule = '';
+if (preg_match('#\.boot--leaving::after\s*\{(.*?)\}#s', $loaderRules, $bandRuleMatch)) {
+    $bandRule = $bandRuleMatch[1];
+}
+T::truthy($bandRule !== '', 'phase 3: the band rule is present');
+T::truthy(strpos($bandRule, 'transform-origin: left center') !== false, 'phase 3: the band grows from the LEFT edge');
+T::truthy(strpos($bandRule, 'scaleX(0)') !== false, 'phase 3: the band scales horizontally');
+T::truthy(strpos($bandRule, 'scaleY') === false, 'phase 3: the band has no vertical scaling');
+T::truthy((bool) preg_match('#linear-gradient\(90deg#', $bandRule), 'phase 3: the band gradient runs left to right');
+// And the rail must NOT be horizontal.
+$barRule = '';
+if (preg_match('#\.boot__progressBar\s*\{(.*?)\}#s', $loaderRules, $barMatch)) {
+    $barRule = $barMatch[1];
+}
+T::truthy(strpos($barRule, 'scaleY(') !== false, 'phase 2: the rail scales vertically');
+T::truthy(strpos($barRule, 'scaleX') === false, 'phase 2: the rail has no horizontal scaling');
 // The figure rides the bar, as the reference animates it.
 T::truthy((bool) preg_match('#\.boot__progressText\s*\{[^}]*top:\s*calc\(var\(--boot-progress#s', $loaderRules), 'phase 2: the figure rides the bar');
 
@@ -1181,9 +1200,11 @@ if (preg_match('/@keyframes\s+boot-fadeIn\s*\{(.*?)\n\}/s', $loaderRules, $bandM
     $bandBody = $bandMatch[1];
 }
 T::truthy($bandBody !== '', 'phase 3: the band keyframe body is present');
-T::truthy(substr_count($bandBody, 'scaleY(') >= 2, 'phase 3: the band fills on the Y axis');
-T::truthy(strpos($bandBody, 'scaleX') === false, 'phase 3: the band has no horizontal scaling');
-T::truthy((bool) preg_match('#\.boot--leaving::after\s*\{[^}]*transform-origin:\s*center top#s', $loaderRules), 'phase 3: the band fills downward from the top');
+// The band's axis is asserted in the dual-axis block below, where it belongs: this block
+// used to require scaleY and a top origin, which contradicted what the reference does and
+// what the operator asked for. Two assertions disagreeing about the same rule is worse
+// than either being wrong, because neither failure explains itself.
+T::truthy(substr_count($bandBody, 'scaleX(') >= 2, 'phase 3: the band fills on the X axis');
 
 // --- the hold --------------------------------------------------------------
 // The single most load-bearing number in the screen: the reference waits 1500ms with the
@@ -1213,6 +1234,34 @@ T::truthy((bool) preg_match('#\.catch\(function \(\) \{ /\* counted anyway#s', $
 // The figure and the bar read the same value, and it is written to the ROOT: the backdrop
 // is a sibling of the bar, so writing it to the bar left the backdrop at a flat 8px.
 T::truthy(strpos($consentJs, "documentElement.style.setProperty('--boot-progress'") !== false, 'progress is written to the root so every layer can read it');
+
+// --- the figure ROLLS through every integer --------------------------------
+// Tasks finish in steps, so the raw values jump. The operator asked for the values in
+// between (40, 41, 42, 43, 44, 45), so the display walks toward the target and paints
+// each integer it passes. Measured from the paint log: every value from 1 to 67 with no
+// gaps. A MutationObserver cannot verify this -- it batches records, so writes inside one
+// frame collapse and a correct roll looks like it jumps -- which is why the paint log
+// exists.
+T::truthy(strpos($consentJs, 'BOOT_ROLL_PER_SECOND') !== false, 'the figure rolls instead of snapping');
+T::truthy(strpos($consentJs, 'bootPaintLog') !== false, 'the paint order is logged, so a skip can be proven or disproven');
+T::truthy(strpos($consentJs, 'window.__SATAPI_BOOT_ROLL__') !== false, 'the paint log is readable from the page');
+// The roll must paint the integers it crossed, not just the destination.
+T::truthy((bool) preg_match('#for \(var v = Math\.floor\(bootShown\) \+ 1; v <= Math\.floor\(next\); v\+\+\)#', $consentJs), 'the roll paints each integer it crosses');
+// It must terminate: without a stop condition the rAF loop would run forever.
+T::truthy((bool) preg_match('#if \(Math\.abs\(bootShown - bootTarget\) < 0\.5\)#', $consentJs), 'the roll stops when it reaches the target');
+// The last step is painted directly, so the screen does not roll through 100 as it is
+// being covered.
+T::truthy((bool) preg_match('#if \(value >= 100\)#', $consentJs), 'the final value is painted without rolling');
+
+// --- one speed for the rail, the figure and the exit -----------------------
+// The operator asked for the rail to run at the exit animation's speed, so the three 620ms
+// declarations are the contract.
+$railTimings = 0;
+if (preg_match_all('#transition(?:\s*:\s*[^;]*?)?\s*620ms linear#', $loaderRules, $railMatch)) {
+    $railTimings = count($railMatch[0]);
+}
+T::truthy($railTimings >= 2, 'the rail and the figure share the exit band\'s 620ms speed (found ' . $railTimings . ')');
+T::truthy((bool) preg_match('#animation:\s*boot-fadeIn\s*620ms linear#', $loaderRules), 'the exit band runs at 620ms linear');
 
 // --- vertical and linear hold everywhere ------------------------------------
 $timings = array();

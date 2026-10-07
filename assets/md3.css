@@ -429,7 +429,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   background: linear-gradient(180deg,
     var(--primary),
     color-mix(in oklab, var(--primary) 78%, #fff));
-  transition: transform 500ms linear;
+  /* Same speed as the band that ends the screen, so the rail and the exit read as one
+     system rather than two unrelated timings. */
+  transition: transform 620ms linear;
 }
 /* The unfilled rail has to be legible or the bar reads as a smudge against the dark
    field: at 12% white the filled and empty halves were nearly the same value. */
@@ -448,7 +450,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   left: 3.125rem;
   top: calc(var(--boot-progress, 0) * 100%);
   transform: translateY(-50%);
-  transition: top 500ms linear;
+  transition: top 620ms linear;
   display: flex;
   flex-direction: column;
   gap: var(--sp-1);
@@ -528,16 +530,22 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   position: absolute;
   inset: 0;
   z-index: 2;
-  transform-origin: center top;
-  transform: scaleY(0);
-  background: linear-gradient(180deg,
+  /* LEFT TO RIGHT, and this is a direct reproduction rather than a preference. The
+     reference's own rule is `transform-origin: left; transform: scaleX(0)` with
+     `background-color: #fffa00`, and the operator asked for exactly that ending. An
+     earlier revision here made this vertical along with the rest of the screen, which
+     was wrong: this is the one movement in the reference that is horizontal, and the
+     progress rail is the one that is vertical. */
+  transform-origin: left center;
+  transform: scaleX(0);
+  background: linear-gradient(90deg,
     var(--primary),
     color-mix(in oklab, var(--primary) 70%, #fff));
   animation: boot-fadeIn 620ms linear forwards;
 }
 @keyframes boot-fadeIn {
-  0%   { transform: scaleY(0); }
-  100% { transform: scaleY(1); }
+  0%   { transform: scaleX(0); }
+  100% { transform: scaleX(1); }
 }
 /* Once the band has covered the screen, the content that was animating behind it is
    pointless to keep painting. */
