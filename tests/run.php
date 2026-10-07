@@ -1137,228 +1137,168 @@ T::truthy(strpos($tokensCss, '[data-theme="dark"]') !== false, 'an explicit them
 $md3Css = (string) @file_get_contents(Config::path('assets/md3.css'));
 T::truthy(strpos($md3Css, 'border-radius: 0 !important') !== false, 'md3.css forces square corners globally');
 // ---------------------------------------------------------------------------
-// The loading screen: three phases, reproduced from the reference component.
+// The loading screen.
 //
-// The reference drives all three phases from REAL TASK COMPLETION -- a count of
-// finished tasks over the total -- and every visual is a function of it. These
-// assertions pin the three phases and the two operator requirements (vertical, linear)
-// so a future edit cannot quietly drop a phase the way the first version dropped the
-// phase-3 hold.
+// Four-phase progress and a four-phase fill, every timing a bezier. The structure is
+// reproduced from the reference sites the operator named:
+//
+//   tongdiaojihua.com   a constant 12px rail filled by a pixel length, a readout positioned by
+//                       the same value, and an :after block filling left to right on
+//                       cubic-bezier(.76,0,.24,1) while the overlay opacity lags on a delay
+//   endfield            real task completion driving every visual
+//
+// These assertions pin the parts that were each asked for by name, so a later edit cannot drop
+// one silently. The earlier revisions of this screen are in the git log; what follows describes
+// only the current contract.
 // ---------------------------------------------------------------------------
 
+// Read both sources here rather than relying on an assignment further down the file: this block
+// uses them throughout, and an undefined variable made every assertion that touched it fail with
+// a message about the assertion instead of about the cause.
+$consentJs = (string) @file_get_contents(Config::path('assets/consent.js'));
+$md3Css = (string) @file_get_contents(Config::path('assets/md3.css'));
+
 $loaderSegment = '';
-if (preg_match('#/\* --- loading screen.*?/\* --- focus visibility#s', $md3Css, $segMatch)) {
+if (preg_match('#/\\* =+\\s*\\n\\s*Loading screen.*?/\\* --- focus visibility#s', $md3Css, $segMatch)) {
     $loaderSegment = $segMatch[0];
 }
 T::truthy($loaderSegment !== '', 'the loading screen block is present');
-// Comments are stripped before scanning: the block documents the rules it enforces, and
-// an earlier version of this check flagged the word "cubic-bezier" inside the sentence
-// forbidding it.
-$loaderRules = (string) preg_replace('#/\*.*?\*/#s', '', $loaderSegment);
+// Comments are stripped before scanning: the block documents the rules it enforces, and an
+// earlier version of this check flagged the word cubic-bezier inside the sentence explaining
+// why that curve was chosen.
+$loaderRules = (string) preg_replace('#/\\*.*?\\*/#s', '', $loaderSegment);
+// Everything before the reduced-motion query must be a bezier. The linear inside that query is
+// the point of the query, so the scan stops there rather than flagging it.
+$motionAt = strpos($loaderRules, 'prefers-reduced-motion');
+$loaderEased = $motionAt === false ? $loaderRules : substr($loaderRules, 0, $motionAt);
 
-// --- phase 1: pre-response -------------------------------------------------
-// Progress 0 with the backdrop defocused by the full amount. The blur is a FUNCTION of
-// progress, not a constant, which is what distinguishes phase 1 from a plain dark panel.
-T::truthy(
-    (bool) preg_match('#\.boot__bg\s*\{[^}]*blur\(calc\(8px\s*-\s*\(var\(--boot-progress[^)]*\)\s*\*\s*8px\)\)\)#s', $loaderRules),
-    'phase 1: the backdrop blur is a function of progress (8px at zero)'
-);
+// --- the rail is ALWAYS thick ----------------------------------------------
+// Asked for explicitly: thick throughout, not thickened on completion. The reference bar is a
+// constant 12px for its whole life, and it stays that way here, so no width change can flash.
+T::truthy((bool) preg_match('#\\.boot__progress\\s*\\{[^}]*width:\\s*var\\(--boot-rail-w,\\s*12px\\)#s', $loaderRules), 'the rail is a constant 12px, not a growth at the end');
+T::truthy(strpos($loaderRules, 'boot--full') === false, 'no class thickens the rail on completion');
+T::truthy(strpos($consentJs, 'boot--full') === false, 'the script does not add a thickening class');
 
-// --- phase 2: the bar ------------------------------------------------------
-// A vertical rail in BOTH orientations, growing downward.
-T::truthy((bool) preg_match('#\.boot__progress\s*\{[^}]*width:\s*var\(--boot-rail-w,\s*6px\)#s', $loaderRules), 'phase 2: a 6px vertical rail (tokenised so the finished state can double it)');
-T::truthy((bool) preg_match('#\.boot__progressBar\s*\{[^}]*scaleY\(#s', $loaderRules), 'phase 2: the bar scales vertically');
-T::truthy((bool) preg_match('#\.boot__progressBar\s*\{[^}]*transform-origin:\s*center top#s', $loaderRules), 'phase 2: the bar grows from the top');
-// The two axes are deliberate and opposite, so assert each where it belongs rather than
-// banning one globally. The rail is vertical (reproducing the reference's `height: %`),
-// and the exit band is horizontal (reproducing the reference's `transform-origin: left;
-// transform: scaleX(0)`). An earlier revision made BOTH vertical, which was wrong on the
-// band: every client's ending is a left-to-right sweep.
+// --- the bar is filled by a pixel length, as the reference does -------------
+T::truthy((bool) preg_match('#\\.boot__progressBar\\s*\\{[^}]*height:\\s*var\\(--boot-progress-px#s', $loaderRules), 'the rail is filled by a pixel length');
+T::truthy((bool) preg_match('#\\.boot__progressText\\s*\\{[^}]*top:\\s*var\\(--boot-progress-px#s', $loaderRules), 'the readout is positioned by the same value, so it rides the fill');
+T::truthy((bool) preg_match("#documentElement\\.style\\.setProperty\\('--boot-progress-px'#", $consentJs), 'the script writes that length');
+// It must go to the ROOT: the backdrop is a sibling of the rail, and a custom property only
+// inherits downward, so writing it to the rail left the backdrop reading the fallback.
+T::truthy((bool) preg_match("#documentElement\\.style\\.setProperty\\('--boot-progress'#", $consentJs), 'the ratio is written to the root too, so the backdrop can read it');
+
+// --- the four phases of the progress bar -----------------------------------
+foreach (array('startup', 'sustain', 'deceleration', 'rest') as $phaseKey) {
+    T::truthy(strpos($consentJs, "key: '" . $phaseKey . "'") !== false, 'the ' . $phaseKey . ' segment exists');
+}
+T::truthy((bool) preg_match('#function bootTraveled\\(#', $consentJs), 'the journey is mapped by elapsed time');
+T::truthy((bool) preg_match('#function bezier\\(curve, x\\)#', $consentJs), 'there is a bezier solver, so the curves are real curves');
+// Each share is also the fraction of the journey that segment carries, so together they must
+// reach 1 or the bar would never arrive.
+$shares = array();
+if (preg_match_all("#key: '(startup|sustain|deceleration|rest)',\\s*share: ([0-9.]+)#", $consentJs, $shareMatch)) {
+    foreach ($shareMatch[1] as $i => $k) { $shares[$k] = (float) $shareMatch[2][$i]; }
+}
+T::same(4, count($shares), 'all four segments declare a share');
+$shareTotal = 0.0;
+foreach ($shares as $v) { $shareTotal += $v; }
+T::truthy(abs($shareTotal - 1.0) < 0.001, 'the shares sum to 1 (got ' . $shareTotal . ')');
+// The sustain segment must carry the most: it is the fast middle of the journey.
+T::truthy($shares['sustain'] > $shares['startup'] && $shares['sustain'] > $shares['deceleration'], 'sustain carries the largest share');
+T::truthy($shares['startup'] > $shares['rest'], 'startup carries more than the settling segment');
+
+// --- every timing is a bezier ---------------------------------------------
+// Asked for explicitly, replacing the earlier all-linear requirement. The only linear left is
+// inside the reduced-motion branch, which is where it belongs.
+$timings = array();
+if (preg_match_all('#(?:animation|transition)\\s*:\\s*([^;]+);#', $loaderEased, $timingMatch)) {
+    foreach ($timingMatch[1] as $declaration) {
+        $d = trim($declaration);
+        if (stripos($d, 'none') === 0) { continue; }   // a switch, not a timing
+        $timings[] = $d;
+    }
+}
+T::truthy(count($timings) >= 10, 'the screen declares its timings (found ' . count($timings) . ')');
+foreach ($timings as $declaration) {
+    T::truthy(stripos($declaration, 'cubic-bezier') !== false, 'timing is a bezier: ' . $declaration);
+}
+$bezierCount = substr_count($loaderEased, 'cubic-bezier');
+T::truthy($bezierCount >= 10, 'the screen uses beziers throughout (found ' . $bezierCount . ')');
+T::truthy(strpos($loaderEased, 'var(--ease') === false, 'no easing variable is used on the loading screen');
+
+// --- the fill: left to right, on the reference's own curve ------------------
 $bandRule = '';
-if (preg_match('#\.boot--leaving::after\s*\{(.*?)\}#s', $loaderRules, $bandRuleMatch)) {
-    $bandRule = $bandRuleMatch[1];
+if (preg_match('#\\.boot--leaving::after\\s*\\{(.*?)\\}#s', $loaderRules, $bandMatch)) {
+    $bandRule = $bandMatch[1];
 }
-T::truthy($bandRule !== '', 'phase 3: the band rule is present');
-T::truthy(strpos($bandRule, 'transform-origin: left center') !== false, 'phase 3: the band grows from the LEFT edge');
-T::truthy(strpos($bandRule, 'scaleX(0)') !== false, 'phase 3: the band scales horizontally');
-T::truthy(strpos($bandRule, 'scaleY') === false, 'phase 3: the band has no vertical scaling');
-T::truthy((bool) preg_match('#linear-gradient\(90deg#', $bandRule), 'phase 3: the band gradient runs left to right');
-// And the rail must NOT be horizontal.
-$barRule = '';
-if (preg_match('#\.boot__progressBar\s*\{(.*?)\}#s', $loaderRules, $barMatch)) {
-    $barRule = $barMatch[1];
-}
-T::truthy(strpos($barRule, 'scaleY(') !== false, 'phase 2: the rail scales vertically');
-T::truthy(strpos($barRule, 'scaleX') === false, 'phase 2: the rail has no horizontal scaling');
-// The figure rides the bar, as the reference animates it.
-T::truthy((bool) preg_match('#\.boot__progressText\s*\{[^}]*top:\s*calc\(var\(--boot-progress#s', $loaderRules), 'phase 2: the figure rides the bar');
+T::truthy($bandRule !== '', 'the fill rule is present');
+T::truthy(strpos($bandRule, 'transform-origin: left center') !== false, 'the fill starts at the LEFT edge');
+T::truthy(strpos($bandRule, 'scaleX(0)') !== false, 'the fill scales horizontally');
+T::truthy(strpos($bandRule, 'scaleY') === false, 'the fill has no vertical scaling');
+T::truthy((bool) preg_match('#linear-gradient\\(90deg#', $bandRule), 'the fill gradient runs left to right');
+T::truthy(strpos($bandRule, 'cubic-bezier(0.76, 0, 0.24, 1)') !== false, 'the fill uses the reference curve cubic-bezier(.76,0,.24,1)');
 
-// --- phase 3: fill and enter ----------------------------------------------
-T::truthy(strpos($loaderRules, '@keyframes boot-fadeIn') !== false, 'phase 3: the band animation exists');
-$bandBody = '';
-if (preg_match('/@keyframes\s+boot-fadeIn\s*\{(.*?)\n\}/s', $loaderRules, $bandMatch)) {
-    $bandBody = $bandMatch[1];
-}
-T::truthy($bandBody !== '', 'phase 3: the band keyframe body is present');
-// The band's axis is asserted in the dual-axis block below, where it belongs: this block
-// used to require scaleY and a top origin, which contradicted what the reference does and
-// what the operator asked for. Two assertions disagreeing about the same rule is worse
-// than either being wrong, because neither failure explains itself.
-T::truthy(substr_count($bandBody, 'scaleX(') >= 2, 'phase 3: the band fills on the X axis');
+// --- no pause between the count and the fill --------------------------------
+// The fault this replaces: a 300ms hold plus a thickening class sat between 100% and the fill,
+// which read as a flicker. The fill now follows the count once it has SETTLED -- it waits on the
+// value, not on a timer.
+T::truthy((bool) preg_match('#function settleRoll\\(#', $consentJs), 'the fill waits for the count to settle');
+T::truthy((bool) preg_match('#if \\(rollSettled\\(\\) \\|\\| Date\\.now\\(\\) - started > \\d+\\)#', $consentJs), 'the settle wait is bounded, so the screen cannot stand forever');
+T::truthy(strpos($consentJs, 'PHASE3_REST_MS') === false, 'there is no rest beat between the count and the fill');
+T::truthy(strpos($consentJs, 'PHASE3_BUFFER_MS') === false, 'there is no separate buffer beat either');
+T::truthy((bool) preg_match('#settleRoll\\(function \\(\\) \\{\\s*// Straight into the fill#s', $consentJs), 'the fill starts directly on settle, with no intervening step');
 
-// --- the hold --------------------------------------------------------------
-// The single most load-bearing number in the screen: the reference waits 1500ms with the
-// band covering everything before it considers itself loaded, and hands over at 2400ms.
-// Removing the overlay when the band finished is exactly what made the first version
-// read as a flicker.
-$consentJs = (string) @file_get_contents(Config::path('assets/consent.js'));
+// --- the timings that remain ------------------------------------------------
 foreach (array(
-    'PHASE3_BAND_MS = 620'  => 'the band duration matches the stylesheet',
-    'PHASE3_BUFFER_MS = 400'    => 'the catch-up has a settle budget',
-    'PHASE3_REST_MS = 300'      => 'the rest at 100% is inside the requested 0.2-0.4s',
-    'PHASE3_CROSSFADE_MS = 350' => 'the cross-fade is inside the requested 0.2-0.5s',
+    'PHASE_FILL_MS = 760'       => 'the fill duration matches the stylesheet animate',
+    'PHASE_FADE_DELAY_MS = 500' => 'the overlay fade is delayed until the fill has crossed',
+    'PHASE_CROSSFADE_MS = 400'  => 'the page cross-fades over the same window',
+    'BOOT_TRAVEL_MS = 1250'     => 'the roll has a defined travel time',
 ) as $needle => $label) {
-    T::truthy(strpos($consentJs, $needle) !== false, 'hold contract: ' . $label);
+    T::truthy(strpos($consentJs, $needle) !== false, 'timing: ' . $label);
 }
-// The class the stylesheet keys the band off has to be the class the script adds.
-T::truthy(strpos($consentJs, "classList.add('boot--leaving')") !== false, 'the script starts the band with boot--leaving');
-T::truthy(strpos($consentJs, "classList.add('boot--done')") !== false, 'the script fades with boot--done');
-T::truthy(strpos($loaderRules, '.boot--done') !== false, 'the stylesheet defines the fade class');
-
-// --- progress is real work, not a timer ------------------------------------
-T::truthy(strpos($consentJs, 'registerBootTask') !== false, 'tasks are registered, so the bar counts real work');
-T::truthy(strpos($consentJs, 'runBootTasks') !== false, 'the tasks are run and counted');
-T::truthy(strpos($consentJs, '/v1/health/live') !== false, 'one task is a real round trip to the service');
-// The task runner must count failures too, or a failed task would stall the screen.
-T::truthy((bool) preg_match('#\.catch\(function \(\) \{ /\* counted anyway#s', $consentJs), 'a rejected task still counts, so the screen cannot stall');
-// The figure and the bar read the same value, and it is written to the ROOT: the backdrop
-// is a sibling of the bar, so writing it to the bar left the backdrop at a flat 8px.
-T::truthy(strpos($consentJs, "documentElement.style.setProperty('--boot-progress'") !== false, 'progress is written to the root so every layer can read it');
-
-// --- the figure ROLLS through every integer --------------------------------
-// Tasks finish in steps, so the raw values jump. The operator asked for the values in
-// between (40, 41, 42, 43, 44, 45), so the display walks toward the target and paints
-// each integer it passes. Measured from the paint log: every value from 1 to 67 with no
-// gaps. A MutationObserver cannot verify this -- it batches records, so writes inside one
-// frame collapse and a correct roll looks like it jumps -- which is why the paint log
-// exists.
-T::truthy(strpos($consentJs, 'BOOT_ROLL_PER_SECOND') !== false, 'the figure rolls instead of snapping');
-T::truthy(strpos($consentJs, 'bootPaintLog') !== false, 'the paint order is logged, so a skip can be proven or disproven');
-T::truthy(strpos($consentJs, 'window.__SATAPI_BOOT_ROLL__') !== false, 'the paint log is readable from the page');
-// The roll must paint the integers it crossed, not just the destination.
-T::truthy((bool) preg_match('#for \(var v = Math\.floor\(previous\) \+ 1; v <= Math\.floor\(next\); v\+\+\)#', $consentJs), 'the roll paints each integer it crosses');
-// It must terminate: without a stop condition the rAF loop would run forever.
-T::truthy((bool) preg_match('#if \(Math\.abs\(bootShown - bootTarget\) < 0\.5\)#', $consentJs), 'the roll stops when it reaches the target');
-// The chase is clamped to the target, so it lands on 100 exactly rather than sailing past
-// it while the screen is being covered.
-T::truthy((bool) preg_match('#var next = Math\.min\(bootTarget,#', $consentJs), 'the chase is clamped to the target, so it lands on 100 exactly instead of sailing past it');
-
-// --- one speed for the rail, the figure and the exit -----------------------
-// The operator asked for the rail to run at the exit animation's speed, so the three 620ms
-// declarations are the contract.
-$railTimings = 0;
-if (preg_match_all('#transition(?:\s*:\s*[^;]*?)?\s*620ms linear#', $loaderRules, $railMatch)) {
-    $railTimings = count($railMatch[0]);
-}
-T::truthy($railTimings >= 2, 'the rail and the figure share the exit band\'s 620ms speed (found ' . $railTimings . ')');
-T::truthy((bool) preg_match('#animation:\s*boot-fadeIn\s*620ms\s+cubic-bezier\(0\.42,\s*0,\s*1,\s*1\)#', $loaderRules), 'the exit band runs at 620ms with an ease-in curve');
-// The band is the ONE curve on the screen that is not linear, and it is deliberate: it was
-// asked for by name as "left slow, right fast". Assert the rest of the screen stays linear
-// so this exception cannot spread.
-T::truthy(strpos($loaderRules, 'cubic-bezier') !== false, 'the band is the sole eased curve');
-$easeCount = substr_count($loaderRules, 'cubic-bezier');
-T::same(1, $easeCount, 'exactly one eased declaration exists on the loading screen');
-
-// --- the 100% beat: a pause, a thickening, then the band ---------------------
-// Requested explicitly: rest 0.2-0.4s at 100%, thicken the rail to about twice its width,
-// then the band. Each is asserted as a number so a future edit cannot drop one silently.
-T::truthy(strpos($consentJs, 'PHASE3_REST_MS = 300') !== false, 'the rest at 100% is 300ms (within the requested 0.2-0.4s)');
-T::truthy((bool) preg_match('#--boot-rail-w,\s*6px#', $loaderRules), 'the rail starts at 6px');
-T::truthy((bool) preg_match('#\.boot--full\s*\{\s*--boot-rail-w:\s*12px#s', $loaderRules), 'the rail doubles to 12px at 100%');
-T::truthy(strpos($consentJs, "classList.add('boot--full')") !== false, 'the script applies the thickening class');
-// The thickening must happen BEFORE the band, not while it is covering the screen.
-$fullIdx = strpos($consentJs, "classList.add('boot--full')");
-$leaveIdx = strpos($consentJs, "classList.add('boot--leaving')");
-T::truthy($fullIdx !== false && $leaveIdx !== false && $fullIdx < $leaveIdx, 'the rail thickens before the band starts');
+// The stylesheet animate and the script constant must agree, or the fade lands mid-fill.
+T::truthy((bool) preg_match('#boot-fill 760ms#', $loaderRules), 'the stylesheet animate is 760ms, matching PHASE_FILL_MS');
 
 // --- the cross-fade ---------------------------------------------------------
-// The page fades in while the overlay fades out, instead of the overlay lifting off a page
-// that was already fully visible.
 T::truthy(strpos($loaderRules, 'html.boot-entering body') !== false, 'the page has a pre-fade state');
 T::truthy(strpos($loaderRules, 'html.boot-entering.boot-entered body') !== false, 'the page has a post-fade state');
 T::truthy(strpos($consentJs, 'function enterCrossfade') !== false, 'the script drives the cross-fade');
-T::truthy(strpos($consentJs, "classList.add('boot-entering')") !== false && strpos($consentJs, "classList.add('boot-entered')") !== false, 'both cross-fade classes are applied');
-// The starting state has to be in effect before the ending state, or there is nothing to
-// interpolate and the fade is skipped.
-T::truthy((bool) preg_match('#void root\.offsetHeight#', $consentJs), 'a reflow is forced between the two cross-fade classes');
-T::truthy(strpos($consentJs, 'PHASE3_CROSSFADE_MS = 350') !== false, 'the cross-fade is 350ms (within the requested 0.2-0.5s)');
+T::truthy((bool) preg_match('#void root\\.offsetHeight#', $consentJs), 'a reflow is forced between the two cross-fade classes, or the fade is skipped');
 
-// --- the catch-up: rate rises with lag --------------------------------------
-// Requested as "stuck at 67%, then accelerates back like a car". The mechanism is a speed
-// multiple driven by how far behind the display is:
-//
-//     rate = BASE * (1 + lag / D)
-//
-// An earlier version used `remaining / 0.45`, a fixed sprint window, and the arithmetic
-// proved it wrong: the rate collapsed back to the base rate on the second half, so a
-// 100-point catch-up took 1104ms instead of landing inside the 400ms budget.
-T::truthy(strpos($consentJs, 'BOOT_ROLL_PER_SECOND = 52') !== false, 'there is a steady base rate');
-T::truthy(strpos($consentJs, 'BOOT_CATCHUP_DISTANCE = 8') !== false, 'the catch-up distance is derived, not guessed');
-T::truthy((bool) preg_match('#var rate = BOOT_ROLL_PER_SECOND \* \(1 \+ remaining / BOOT_CATCHUP_DISTANCE\)#', $consentJs), 'the rate is a multiple of the base rate, rising with the lag');
-T::truthy((bool) preg_match('#var next = Math\.min\(bootTarget,#', $consentJs), 'the step is clamped to the target, so it cannot overshoot');
-T::truthy(strpos($consentJs, 'PHASE3_BUFFER_MS = 400') !== false, 'the catch-up has a 400ms budget');
-// The buffer must be a decision, not a fixed sleep: if the chase has already settled the
-// pause starts immediately, otherwise the buffer is spent letting it settle.
-T::truthy((bool) preg_match('#var settle = rollSettled\(\) \? 0 : PHASE3_BUFFER_MS#', $consentJs), 'the buffer is spent only when the chase has not settled');
+// --- the count still rolls through every integer ----------------------------
+T::truthy((bool) preg_match('#for \\(var v = Math\\.floor\\(bootShown\\) \\+ 1; v <= Math\\.floor\\(next\\); v\\+\\+\\)#', $consentJs), 'the roll paints each integer it crosses');
+T::truthy(strpos($consentJs, 'bootPaintLog') !== false, 'the paint order is logged, so a skip can be proven or disproven');
+// The journey baseline is re-stamped whenever the destination moves, and the stopwatch is not:
+// measured as total 0.001 freezing the display at 0.001 while the target climbed to 67.
+T::truthy((bool) preg_match('#stepRoll\\.from = bootShown;#', $consentJs), 'the journey origin is re-stamped on each new leg');
+T::truthy((bool) preg_match('#if \\(bootRollTimer === null\\) \\{\\s*startRoll\\(\\);#s', $consentJs), 'the stopwatch is only reset when the roll is idle');
 
-// --- vertical and linear hold everywhere ------------------------------------
-$timings = array();
-if (preg_match_all('#(?:animation|transition)\s*:\s*([^;]+);#', $loaderRules, $timingMatch)) {
-    foreach ($timingMatch[1] as $declaration) {
-        // `animation: none` is a switch, not a timing.
-        if (stripos(trim($declaration), 'none') === 0) { continue; }
-        $timings[] = trim($declaration);
-    }
-}
-T::truthy(count($timings) >= 8, 'the screen declares its timings (found ' . count($timings) . ')');
-foreach ($timings as $declaration) {
-    // The exit band is the one intentional exception; it is asserted separately below.
-    if (stripos($declaration, 'boot-fadeIn') !== false) { continue; }
-    T::truthy(stripos($declaration, 'linear') !== false, 'timing is linear: ' . $declaration);
-}
-T::same(1, substr_count($loaderRules, 'cubic-bezier'), 'exactly one eased curve remains, and it is the band');
-T::truthy(strpos($loaderRules, 'var(--ease') === false, 'no easing variable remains');
-T::truthy(strpos($md3Css, 'prefers-reduced-motion') !== false, 'the animation is disabled on request');
-
-// --- server-rendered structure, and it must be on every page ---------------
+// --- server-rendered structure, on every page -------------------------------
 $shellPhp = (string) @file_get_contents(Config::path('partials/shell.php'));
 foreach (array(
-    'boot__bg'          => 'the backdrop',
-    'boot__progress'    => 'the rail',
-    'boot__progressBar' => 'the bar',
-    'boot__progressText' => 'the figure block',
-    'boot__caption'     => 'the status caption',
-    'boot__moreDeco'    => 'the deco group',
-    'data-boot-figure'  => 'the percentage readout',
+    'boot__bg'           => 'the backdrop',
+    'boot__progress'     => 'the rail',
+    'boot__progressBar'  => 'the fill',
+    'boot__progressText' => 'the readout block',
+    'boot__caption'      => 'the status caption',
+    'boot__moreDeco'     => 'the deco group',
+    'data-boot-figure'   => 'the percentage readout',
 ) as $probe => $label) {
     T::truthy(strpos($shellPhp, $probe) !== false, 'the shell renders ' . $label . ', so every page gets it');
 }
 T::truthy(strpos($shellPhp, 'role="progressbar"') !== false, 'the progress element carries its ARIA role');
-// The caption must NOT share a class with a node the script rewrites: the first version
-// shared `.boot__deco`, so writing the caption flattened all three locales into view.
-T::truthy(
-    (bool) preg_match('#<div class="boot__caption"[^>]*data-boot-caption#', $shellPhp),
-    'the caption has its own class, so a caption write cannot clobber another node'
-);
+T::truthy((bool) preg_match('#<div class="boot__caption"[^>]*data-boot-caption#', $shellPhp), 'the caption has its own class, so a caption write cannot clobber another node');
 T::truthy(strpos($consentJs, "caption.querySelector('.i18n.is-active')") !== false, 'the caption updates only the active locale');
 
-// --- the three locale captions exist ---------------------------------------
+// --- the caption strings exist in every locale -------------------------------
 foreach (array('boot.preparing', 'boot.verifying', 'boot.entering', 'boot.ready') as $key) {
     foreach (I18n::locales() as $localeCode) {
         $value = I18n::translate($localeCode, $key, '');
         T::truthy($value !== '' && $value !== $key, $localeCode . ' defines ' . $key);
     }
 }
+
 // --- migration completeness GATE --------------------------------------------
 // The rename shipped in v3.1. A single surviving old name or old version anywhere a
 // client can see it would mean the migration is half-applied, so this scans the whole

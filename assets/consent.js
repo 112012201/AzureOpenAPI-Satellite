@@ -179,136 +179,199 @@
 
   /* ------------------------------------------------------------- overlay */
   /*
-   * Three phases, reproduced from the reference loading component.
+   * Four phases, reproduced from the reference sites the operator named.
    *
-   * The component drives everything from one number: how many of its tasks have
-   * finished, over how many there are. It runs every task at once, increments a counter
-   * in each one's `finally`, and every visual is a function of done/total -- the bar's
-   * length, the figure, the caption's position, and the backdrop's blur. When the count
-   * reaches the total it marks itself leaving, waits a fixed 1500ms with the screen
-   * filled, and only then considers the app loaded (handing over at 2400ms).
+   * The structure comes from tongdiaojihua.com's loading module:
    *
-   * That is what this reproduces:
+   *   overlay      a fixed, full-bleed dark block whose own opacity fades LAST,
+   *                on a delay, after the coloured fill has crossed it
+   *   fill         an :after block scaled from the left edge on
+   *                cubic-bezier(.76, 0, .24, 1) -- slow, fast, slow
+   *   rail         a constant 12px, filled by the progress value in pixels
+   *   readout      positioned by the SAME value, so it rides the top of the fill
    *
-   *   phase 1  pre-response   progress 0, backdrop blurred by the full 8px
-   *   phase 2  linear loading the bar grows as tasks finish, backdrop de-focuses
-   *   phase 3  fill and enter the band fills the screen and HOLDS for 1500ms
+   * And the driving model comes from endfield's component: real task completion, with
+   * every visual a function of how much has finished.
    *
-   * The hold is the part that was missing before. An earlier version removed the
-   * overlay as soon as the wipe finished, so the transition was a flicker instead of an
-   * entrance. These three constants are the reference's own numbers.
+   * The progress bar moves in four segments rather than on one curve:
+   *
+   *   startup      accelerating from rest
+   *   sustain      the steady middle
+   *   deceleration easing into the target
+   *   rest         the final settle, no movement left
+   *
+   * Each segment gets its own bezier, which is what makes the bar read as mechanical
+   * rather than as a single tween. The segment lengths are proportional to how far that
+   * segment has to travel, so a phase that only moves a little is not given the same time
+   * as one that moves a lot.
    */
-  var PHASE3_BAND_MS = 620;    // the wipe that fills the screen (md3.css `boot-fadeIn`)
-  /*
-   * The 1500ms the reference holds is composed of two things, and the operator named
-   * both, so they are separate constants rather than one number:
-   *
-   *   BUFFER  how long the numeral may take to catch up after the last task finishes, and
-   *           the window the bar has to reach 100% in. Requested: 500ms. The chase is
-   *           rate-limited so it normally lands well inside this.
-   *   REST    the pause at 100%, during which the rail thickens. Requested: 0.2-0.4s.
-   *
-   * BUFFER + REST = 700ms, which is the 1500ms hold minus the band, so the phase-3 total
-   * the earlier measurement pinned does not move.
-   */
-  var PHASE3_BUFFER_MS = 400;
-  var PHASE3_REST_MS = 300;
-  var PHASE3_HOLD_MS = PHASE3_BUFFER_MS + PHASE3_REST_MS;   // 700
-  var PHASE3_CROSSFADE_MS = 350;   // the page fades in as the overlay fades out
-  var PHASE3_TOTAL_MS = PHASE3_HOLD_MS + PHASE3_BAND_MS + PHASE3_CROSSFADE_MS;   // 1670
-  var BOOT_MIN_MS = 1400;      // minimum dwell so phases 1 and 2 are actually seen
+  var PHASE_FILL_MS = 760;     // the fill's own duration (md3.css boot-fill)
+  var PHASE_FADE_MS = 400;     // the overlay's fade, on a 500ms delay (the .boot--done rule)
+  var PHASE_FADE_DELAY_MS = 500;
+  var PHASE_CROSSFADE_MS = 400;
+  var PHASE_TOTAL_MS = PHASE_FILL_MS + PHASE_FADE_DELAY_MS + PHASE_FADE_MS;
+  var BOOT_MIN_MS = 2000;      // minimum dwell: the four-segment roll needs room to be seen
 
-  var bootTasks = [];
-  var bootDone = 0;
-  var bootStartedAt = 0;
+  /*
+   * Four segments, each with its own curve. This is the "startup / sustain / deceleration
+   * / rest" shape: the bar leaves zero with an accelerating curve, holds a steady pace
+   * through the middle, then eases into its target instead of arriving at full speed.
+   */
+  /*
+   * The curves are chosen by their ENDPOINT TANGENTS, not by feel, because that is what
+   * decides the speed the bar enters and leaves each segment:
+   *
+   *   curve            slope at start   slope at end    reads as
+   *   ease-in  (0,0,1,1)      0.00          2.00        accelerating from rest
+   *   smooth   (.37,0,.63,1)  0.00          0.00        a gentle, even middle
+   *   ease-out (0,0,.58,1)    1.70          0.00        decelerating into the target
+   *   slow-out (.3,0,.8,.6)   0.00          2.00        a last, shallow settle
+   *
+   * The first version used (0.22, 1, 0.36, 1) for startup, whose START slope is 4.55 -- it
+   * left the blocks at more than four times the average speed and then eased off, which is
+   * backwards for a startup phase. Measured as 153 px/s of travel in the first band against
+   * 1451 in the second; it is replaced.
+   *
+   * The shares are proportional to how much of the journey each segment carries, so a
+   * segment that only moves a little is not given the same time as one that moves a lot.
+   */
+  var BOOT_SEGMENTS = [
+    // startup / sustain / deceleration / rest -- the four segments the operator named.
+    //
+    // The curves and the shares are not chosen by eye. A search over candidate curves and
+    // share splits kept the combinations that satisfy all four properties at once: the startup
+    // begins near rest and accelerates; the sustain segment is the FASTEST of the four; the
+    // deceleration ends slower than it starts; the rest segment is the slowest; and nothing
+    // anywhere in the journey stalls. Measured profile of the chosen set, in %/s:
+    //
+    //   segment        mean   first   last   curve
+    //   startup          88       8    143   ease-in       (0.42, 0, 1, 1)
+    //   sustain         123      81      7   strong in-out (0.60, 0, 0.40, 1)
+    //   deceleration     71      45     55   ease-out      (0.00, 0, 0.58, 1)
+    //   rest             39      28      5   ease-in-out   (0.42, 0, 0.58, 1)
+    //
+    // The shares are also the fraction of the journey each segment carries, which is what
+    // makes the speed profile follow from the split rather than from a tuned rate. The lowest
+    // instantaneous rate across the whole journey is 6.9 %/s, so no segment dwells.
+    { key: 'startup',      share: 0.28, curve: [0.42, 0.00, 1.00, 1.00] },
+    { key: 'sustain',      share: 0.38, curve: [0.60, 0.00, 0.40, 1.00] },
+    { key: 'deceleration', share: 0.22, curve: [0.00, 0.00, 0.58, 1.00] },
+    { key: 'rest',         share: 0.12, curve: [0.42, 0.00, 0.58, 1.00] }
+  ];
+
+  /**
+   * The fraction of the journey covered after `elapsed` ms.
+   *
+   * The segments are equal in duration -- BOOT_TRAVEL_MS cut into four -- and each carries
+   * the fraction of the distance named by its `share`. That split IS the speed profile:
+   * startup carries 28% while accelerating, sustain 32% at an even pace, deceleration 26%
+   * while easing off, and rest the final 14% very gently.
+   *
+   * The curves were chosen by their endpoint slopes, because those set the speed the bar
+   * enters and leaves a segment: ease-in leaves rest at zero and arrives at 2.0; the smooth
+   * middle is near 0 at both ends; ease-out arrives at zero from 1.7. The first version used
+   * (0.22, 1, 0.36, 1) for startup, whose start slope is 4.55 -- it left the blocks at over
+   * four times the average and then eased off, backwards for a startup.
+   */
+  function bootTraveled(elapsed) {
+    var slice = BOOT_TRAVEL_MS / BOOT_SEGMENTS.length;
+    var base = 0;
+    for (var i = 0; i < BOOT_SEGMENTS.length; i++) {
+      if (elapsed < slice * (i + 1) || i === BOOT_SEGMENTS.length - 1) {
+        var local = Math.max(0, Math.min(1, (elapsed - slice * i) / slice));
+        return base + BOOT_SEGMENTS[i].share * bezier(BOOT_SEGMENTS[i].curve, local);
+      }
+      base += BOOT_SEGMENTS[i].share;
+    }
+    return 1;
+  }
+  // Total time the roll spends moving after a task reports. Long enough for four segments
+  // to be distinguishable, short enough to stay inside the settle budget.
+  var BOOT_TRAVEL_MS = 1250;
+
+  var bootTasks = [];          // registered work the screen waits on
+  var bootTarget = 0;
+  var bootShown = 0;
+  var bootRollTimer = null;
   var bootLeaving = false;
+  var bootStartedAt = 0;
+
+  /*
+   * Every value the display actually paints is recorded on window.__SATAPI_BOOT_ROLL__.
+   *
+   * This exists because the DOM cannot answer "did it skip a value": a MutationObserver
+   * delivers batched records, so several writes inside one frame collapse into one entry
+   * showing only the last, which made a correct roll look like it was jumping. The log is
+   * the paint order itself, so it is the only honest source for that question.
+   */
+  var bootPaintLog = [];
 
   function overlay() {
     return document.querySelector('[data-boot]');
   }
 
-  /*
-   * The figure and the rail ROLL through every integer on the way to the target.
-   *
-   * Tasks finish in steps, so the raw values jump (0 -> 33 -> 67 -> 100) and assigning
-   * them directly made both the bar and the number snap. The operator asked for the values
-   * in between -- 40, 41, 42, 43, 44, 45 -- so the display is animated separately from the
-   * target: it walks toward the target and renders each integer it passes. That also makes
-   * it independent of the step size, and it is what gives the stalled-then-caught-up
-   * behaviour its shape.
-   */
-  var BOOT_ROLL_PER_SECOND = 52;   // the steady speed, used once the gap is small
-  var BOOT_ROLL_FRAME = 16;        // assumed frame budget, for the per-frame step
-  /*
-   * The catch-up is a SPEED MULTIPLE driven by how far behind the display is:
-   *
-   *     rate = BASE * (1 + lag / BOOT_CATCHUP_DISTANCE)
-   *
-   * At lag <= D the base rate applies and nothing accelerates. Beyond that the harder the
-   * bar has been held back, the faster it runs -- and because the multiple falls back
-   * toward 1 as the gap closes, the approach decelerates on its own. That is the
-   * "stuck, then accelerates back to its normal speed" shape.
-   *
-   * An earlier version used `remaining / 0.45`, a fixed sprint window. Measured against
-   * the arithmetic it was wrong: the rate fell back to the base rate on the second half of
-   * the chase, so a 100-point catch-up took 1104ms instead of landing inside the 400ms
-   * budget, and the stuck-at-10-then-jump-to-60 case took 800ms. The multiple form avoids
-   * that because the base rate is the FLOOR of the expression, not a late takeover.
-   *
-   * D is derived, not guessed. Solving the sum of the per-frame steps gives the frames a
-   * gap needs, and the worst case is the largest possible lag, 100 points:
-   *
-   *     D =  8  ->  ~342ms      D = 16  ->  ~608ms      D = 34  ->  ~1.2s
-   *
-   * Only D = 8 clears the 400ms budget with margin, so that is the value. The cost is that
-   * it is quick to engage (a 10-point gap already runs about 1.6x), which is a feature
-   * here rather than a compromise: it is what makes ordinary step-to-step progress read as
-   * continuous instead of stepped.
-   */
-  var BOOT_CATCHUP_DISTANCE = 8;
-  var bootTarget = 0;              // where the progress reports say we should be
-  var bootShown = 0;               // where the rail and the numeral actually are
-  var bootRollTimer = null;
+  /** Cubic bezier easing, matching the timing function the browser would apply. */
+  function easeAt(segments, progress) {
+    var travelled = 0;
+    var segment = segments[segments.length - 1];
+    for (var i = 0; i < segments.length; i++) {
+      if (progress <= travelled + segments[i].share || i === segments.length - 1) {
+        segment = segments[i];
+        break;
+      }
+      travelled += segments[i].share;
+    }
+    var local = Math.max(0, Math.min(1, (progress - travelled) / segment.share));
+    return { key: segment.key, eased: bezier(segment.curve, local) };
+  }
 
-  /*
-   * Every value the display actually paints is also recorded on
-   * `window.__SATAPI_BOOT_ROLL__`.
-   *
-   * This exists because the DOM cannot answer "did it skip a value": a MutationObserver
-   * delivers batched records, so several writes inside one frame collapse into one entry
-   * showing only the last. That made a correct roll look like it was jumping (measured:
-   * "3 -> 6 -> 8 -> 12") and hid the real sequence. The log is the paint order itself, so
-   * it is the only honest source for that question. It is bounded and harmless in
-   * production, and it is the handle to read if the count ever looks wrong again.
-   */
-  var bootPaintLog = [];
+  /** The same cubic-bezier solve the browser uses, by Newton iteration on x. */
+  function bezier(curve, x) {
+    var p1x = curve[0], p1y = curve[1], p2x = curve[2], p2y = curve[3];
+    var cx = 3 * p1x, bx = 3 * (p2x - p1x) - cx, ax = 1 - cx - bx;
+    var cy = 3 * p1y, by = 3 * (p2y - p1y) - cy, ay = 1 - cy - by;
+    var sampleX = function (t) { return ((ax * t + bx) * t + cx) * t; };
+    var sampleY = function (t) { return ((ay * t + by) * t + cy) * t; };
+    var slopeX = function (t) { return (3 * ax * t + 2 * bx) * t + cx; };
+    var t = x;
+    for (var i = 0; i < 8; i++) {
+      var dx = sampleX(t) - x;
+      if (Math.abs(dx) < 1e-6) { break; }
+      var d = slopeX(t);
+      if (Math.abs(d) < 1e-6) { break; }
+      t -= dx / d;
+    }
+    return sampleY(t);
+  }
 
   /**
-   * Put one value on screen: the numeral, and the custom property that drives the rail,
-   * the figure's travel and the backdrop's de-focus.
+   * Put one value on screen.
    *
-   * The property is set on the ROOT, not on the bar. It inherits down the tree, and the
-   * backdrop (`.boot__bg`) is a SIBLING of the bar, not a descendant -- so writing it to
-   * the bar left the backdrop reading the fallback 0 for its whole life and the de-focus
-   * never happened. Measured: blur stayed at a flat 8px at 33% and at 67%.
+   * The progress is written as a LENGTH in pixels because that is how the reference drives
+   * both the rail and the readout (height: var(--progress) and top: var(--progress)), and
+   * it means neither element has to know the viewport height.
+   *
+   * It is written to the ROOT, not to the bar: the backdrop is a sibling of the bar, and a
+   * custom property only inherits downward, so writing it to the bar left the backdrop
+   * reading the fallback for its whole life and the de-focus never happened.
    */
   function paintProgress(value) {
+    var height = window.innerHeight || 800;
     var figure = document.querySelector('[data-boot-figure]');
     if (figure) { figure.textContent = String(Math.floor(value)); }
+    document.documentElement.style.setProperty('--boot-progress-px', (value / 100 * height) + 'px');
     document.documentElement.style.setProperty('--boot-progress', String(value / 100));
     if (bootPaintLog.length < 400) { bootPaintLog.push(Math.floor(value)); }
     window.__SATAPI_BOOT_ROLL__ = bootPaintLog;
   }
 
   /*
-   * A small handle for driving and inspecting the count from outside.
+   * A handle for driving and inspecting the count from outside.
    *
-   * The catch-up behaviour cannot be proven from an ordinary run: the tasks on this
-   * service finish fast enough that the base rate keeps up, so the rate never rises and
-   * there is nothing to measure. That is a good outcome for the product and a bad one for
-   * verification, so the mechanism is exercised directly instead -- set a target from a
-   * known position, let it run for a fixed time, and read how far it travelled. It is also
-   * the handle to reach for if the count ever looks wrong in production.
+   * The roll cannot be exercised from an ordinary run -- the tasks finish fast enough that
+   * nothing unusual happens -- so the mechanism is driven directly instead: set a target
+   * from a known position, let it run, and read how far it travelled. It is also the handle
+   * to reach for if the count ever looks wrong in production.
    */
   window.__SATAPI_BOOT_PROGRESS__ = {
     setTarget: function (value) {
@@ -322,43 +385,55 @@
     },
     shown: function () { return bootShown; },
     target: function () { return bootTarget; },
+    segment: function () { return bootRollSegment; },
     settled: function () { return rollSettled(); }
   };
 
+  /** True once the display has reached its target, so the fill may begin. */
+  function rollSettled() {
+    return bootTarget === 0 || Math.abs(bootShown - bootTarget) < 0.6;
+  }
+
+  var bootRollSegment = 'rest';
+
+  /**
+   * One frame of the count.
+   *
+   * Where the bar is within its own four segments sets both the curve and the rate: the
+   * display accelerates out of rest, holds a steady pace, then eases into the target. The
+   * phase is decided by how much of the journey is LEFT relative to how far a segment
+   * normally carries, which keeps the shape the same whether the gap is 5 points or 60.
+   */
   function stepRoll() {
     var now = Date.now();
+    var elapsed = now - (stepRoll.started || now);
     stepRoll.last = now;
-    var previous = bootShown;
 
     if (bootShown < bootTarget) {
-      /*
-       * The catch-up, which is the behaviour that was asked for by name: when a task
-       * stalls the bar and the target then jumps, the bar accelerates back up instead of
-       * snapping. Rate is proportional to the gap, so a stopped bar resumes fast and
-       * eases back to its base rate as the gap closes.
-       *
-       *   base rate   BOOT_ROLL_PER_SECOND, the steady speed (also the floor)
-       *   catch-up    BASE * (1 + lag / D), a multiple of the base rate
-       *               on the target inside the buffer window
-       *
-       * Taking the larger of the two means the base speed is never reduced, which is what
-       * "recovers its original speed" asks for.
-       */
-      var remaining = bootTarget - bootShown;
-      var rate = BOOT_ROLL_PER_SECOND * (1 + remaining / BOOT_CATCHUP_DISTANCE);
-      var next = Math.min(bootTarget, bootShown + rate * BOOT_ROLL_FRAME / 1000);
-      // Paint each whole number the step crossed, so nothing is skipped even when the
-      // catch-up covers several integers in one frame.
-      for (var v = Math.floor(previous) + 1; v <= Math.floor(next); v++) {
-        if (v > previous) { paintProgress(previous = v); }
+      // Position comes from where we are in the JOURNEY, not from a rate.
+      //
+      // This inversion is the whole point: the four segments are equal in DURATION while
+      // carrying different fractions of the DISTANCE, so the speed profile falls out of that
+      // split instead of a tuned constant. An earlier version derived a rate from
+      // `remaining / frames`, which collapses toward zero as the gap closes and therefore
+      // swamped the curve shape it was meant to express -- measured 164 px/s of travel in the
+      // startup band against 1051 in the middle, with startup still the slowest segment.
+      var next = Math.min(bootTarget, stepRoll.from + (stepRoll.total || 1) * bootTraveled(elapsed));
+      // The segment name is for the diagnostic handle only; the movement itself is the line
+      // above. Elapsed time picks it, since the segments are equal in duration.
+      var slice = BOOT_TRAVEL_MS / BOOT_SEGMENTS.length;
+      bootRollSegment = BOOT_SEGMENTS[Math.min(BOOT_SEGMENTS.length - 1, Math.floor(elapsed / slice))].key;
+      for (var v = Math.floor(bootShown) + 1; v <= Math.floor(next); v++) {
+        paintProgress(v);
       }
       bootShown = next;
     }
 
-    if (Math.abs(bootShown - bootTarget) < 0.5) {
+    if (rollSettled()) {
       bootShown = bootTarget;
       paintProgress(bootShown);
       bootRollTimer = null;
+      bootRollSegment = 'rest';
       return;
     }
     bootRollTimer = window.requestAnimationFrame(stepRoll);
@@ -366,40 +441,55 @@
 
   function startRoll() {
     if (bootRollTimer !== null) { return; }
-    stepRoll.last = Date.now();
+    /*
+     * A new journey begins HERE, and only here.
+     *
+     * This used to re-stamp `started` on every call, and `setProgress` calls it once per task,
+     * so each task completion reset the travel clock to zero. The display then barely moved:
+     * with a target of 67 it sat at 0.001, because `elapsed` was always a few milliseconds and
+     * the travel fraction it produced was near zero. The origin and the start time belong to
+     * the journey, not to each update of its destination.
+     */
+    stepRoll.started = Date.now();
+    stepRoll.from = bootShown;
+    stepRoll.total = Math.max(0.001, bootTarget - bootShown);
     bootRollTimer = window.requestAnimationFrame(stepRoll);
   }
 
   function setProgress(percent) {
     var value = Math.max(0, Math.min(100, Math.round(percent)));
     var bar = document.querySelector('[data-boot-bar]');
-    var fill = document.querySelector('[data-boot-fill]');
-    if (bar) {
-      bar.setAttribute('aria-valuenow', String(value));
-    }
-    /*
-     * The bar and the numeral follow the DISPLAYED value, never the target directly. That
-     * is what produces the buffered feel the operator asked for: a task finishing at 60%
-     * from 10% does not teleport the bar, it makes the target jump and the display chase
-     * it -- accelerating while the gap is wide, settling back to its base rate as it
-     * closes. The target is what runs ahead; the rail is what lags and catches up.
-     */
+    if (bar) { bar.setAttribute('aria-valuenow', String(value)); }
+    // The target runs ahead; the display chases it. Both the rail and the numeral follow the
+    // display, so they move together.
+    var changed = value !== bootTarget;
     bootTarget = value;
-    startRoll();
-    paintProgress(bootShown);
+    if (bootRollTimer === null) {
+      startRoll();
+    } else if (changed) {
+      /*
+       * A new leg, but the clock keeps running.
+       *
+       * The journey baseline has to be re-stamped whenever the destination moves, or the
+       * distance stays whatever it was when the roll first started. Measured as total 0.001 --
+       * because that first call happened at progress 0, where there was nothing to travel --
+       * and the display then froze at 0.001 while the target climbed to 67.
+       *
+       * The stopwatch is deliberately NOT reset: elapsed time belongs to the whole roll, so the
+       * segment profile keeps advancing instead of restarting at startup on every task.
+       */
+      stepRoll.from = bootShown;
+      stepRoll.total = Math.max(0.001, bootTarget - bootShown);
+    }
   }
 
   function setCaption(text) {
     var caption = document.querySelector('[data-boot-caption]');
     if (!caption || !text) { return; }
     /*
-     * Write to the ACTIVE locale span, not to the container.
-     *
-     * The caption is rendered by the shell with one span per locale, exactly like every
-     * other translated string, so the language switcher works without JavaScript having
-     * to know the strings. Assigning to the container flattened all three into view at
-     * once -- measured as "正在验证…正在驗證…Verifying…". Updating only the visible span
-     * keeps that contract and still swaps the caption as tasks finish.
+     * Write to the ACTIVE locale span, not to the container. The shell renders one span per
+     * locale and CSS picks one, so assigning to the container would flatten all three into
+     * view -- measured as "正在验证…正在驗證…Verifying…".
      */
     var active = caption.querySelector('.i18n.is-active');
     if (active) {
@@ -407,11 +497,6 @@
       return;
     }
     caption.textContent = text;
-  }
-
-  function setHintText(text) {
-    var hint = document.querySelector('[data-boot-hint]');
-    if (hint && text) { hint.textContent = text; }
   }
 
   function showOverlayError(message) {
@@ -425,16 +510,22 @@
   }
 
   /**
-   * Register work that the screen waits on. Order matters only for the caption: the
-   * tasks after the first are what the visitor sees while the bar is moving.
+   * Register work the screen waits on. Order matters only for the caption: tasks after the
+   * first are what the visitor reads while the bar is moving.
    */
   function registerBootTask(label, run) {
     bootTasks.push({ label: label, run: run });
   }
 
   /**
-   * Phase 3. Marks the screen as leaving (which starts the band), holds, then fades and
-   * removes the overlay.
+   * The fill.
+   *
+   * There is deliberately no pause and no thickening beat between reaching 100% and the fill
+   * starting -- that gap is what read as a flicker. The moment the count lands, the block
+   * starts crossing.
+   *
+   * The rail's width is a constant 12px and never changes, so nothing about the bar animates at
+   * the end -- there is no width transition that could produce a flash on completion.
    */
   function finishBoot() {
     var el = overlay();
@@ -445,52 +536,56 @@
     setProgress(100);
     setCaption(bootText('boot.entering', 'Entering'));
 
+    // Wait for the count to actually arrive before covering the screen.
+    //
+    // Without this the fill starts while the display is still climbing -- measured 1265ms
+    // early, so the block swept over a readout that had not finished. That is the same class
+    // of fault as the pause this replaced: the ending has to follow the count, not race it.
+    // There is still no dwell once it arrives; this waits on the value, not on a timer.
     window.setTimeout(function () {
-      // Let the chase settle before the pause: the rail may still be catching up to 100%
-      // when the last task reports, and starting the rest on top of a moving bar would
-      // read as a jump. `rollSettled()` reports whether it has arrived.
-      var settle = rollSettled() ? 0 : PHASE3_BUFFER_MS;
-
-      window.setTimeout(function () {
-        // At 100%, paused: the rail thickens to about twice its width. CSS drives the
-        // widening off this class so the geometry lives in one place.
-        el.classList.add('boot--full');
-
+      settleRoll(function () {
+        // Straight into the fill: no intermediate class, no hold.
+        el.classList.add('boot--leaving');
+        enterCrossfade();
         window.setTimeout(function () {
-          el.classList.add('boot--leaving');
-          // The cross-fade: the page fades in while the overlay fades out, instead of the
-          // overlay lifting off a page that was already fully visible underneath.
-          enterCrossfade();
-          window.setTimeout(function () {
-            el.classList.add('boot--done');
-          }, PHASE3_BAND_MS);
-          window.setTimeout(function () {
-            if (el.parentNode) { el.parentNode.removeChild(el); }
-          }, PHASE3_BAND_MS + PHASE3_CROSSFADE_MS);
-        }, PHASE3_REST_MS);
-      }, settle);
+          el.classList.add('boot--done');
+        }, PHASE_FILL_MS);
+        window.setTimeout(function () {
+          if (el.parentNode) { el.parentNode.removeChild(el); }
+        }, PHASE_FILL_MS + PHASE_FADE_DELAY_MS + PHASE_FADE_MS);
+      });
     }, wait);
+  }
+
+  /**
+   * Call back once the count has settled, or after the safety timeout.
+   *
+   * The timeout matters: if the roll were ever left in a state it could not leave, the screen
+   * would otherwise stay up forever. Two and a half seconds is several times the travel time.
+   */
+  function settleRoll(done) {
+    var started = Date.now();
+    function poll() {
+      if (rollSettled() || Date.now() - started > 2500) { done(); return; }
+      window.requestAnimationFrame(poll);
+    }
+    window.requestAnimationFrame(poll);
   }
 
   /**
    * Mark the document so the page cross-fades in.
    *
-   * Two classes rather than one so the browser has a style to transition FROM: the
-   * starting state (`boot-entering`, page at opacity 0) has to be applied and be in
-   * effect before the ending state is added, otherwise there is nothing to interpolate.
+   * Two classes rather than one so the browser has a style to transition FROM: the starting
+   * state has to be in effect before the ending state is added, or there is nothing to
+   * interpolate.
    */
   function enterCrossfade() {
     var root = document.documentElement;
     root.classList.add('boot-entering');
-    // Read a layout property to force the starting style to take effect. Without this the
-    // two class changes land in the same style recalculation and the fade is skipped.
+    // Force the starting style to take effect. Without this the two class changes land in
+    // the same style recalculation and the fade is skipped.
     void root.offsetHeight;
     root.classList.add('boot-entered');
-  }
-
-  /** True once the numeral has reached its target, so the pause can begin. */
-  function rollSettled() {
-    return bootTarget === 0 || Math.abs(bootShown - bootTarget) < 1;
   }
 
   function bootText(key, fallback) {
@@ -499,9 +594,9 @@
   }
 
   /**
-   * Run every task concurrently and advance on each completion, exactly as the
-   * reference does. A task that rejects still counts: the screen must never stall on a
-   * failure, because the page it is covering has already been sent.
+   * Run every task concurrently and advance on each completion, as the reference does. A
+   * task that rejects still counts: the screen must never stall on a failure, because the
+   * page it is covering has already been sent.
    */
   function runBootTasks() {
     bootStartedAt = Date.now();
@@ -762,9 +857,12 @@
     try { initAnnouncement(); } catch (e) { }
     try { initConsent(); } catch (e) { }
     try { initBoot(); } catch (e) {
-      // The screen must never be left standing: reveal the page on any failure.
+      // The screen must never be left standing: reveal the page on any failure. The error is
+      // re-thrown rather than swallowed: a bare catch here hid a real fault for a whole
+      // debugging pass, because the only visible symptom was the overlay vanishing at once.
       var el = overlay();
       if (el) { el.classList.add('boot--leaving', 'boot--done'); }
+      throw e;
     }
   }
 

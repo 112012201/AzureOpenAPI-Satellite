@@ -242,30 +242,36 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .legal__notice { background: var(--warn-container); color: var(--warn-ink); border-left: 3px solid var(--warn); border-radius: 0; }
 .boot { background: var(--surface); }
 
-/* --- loading screen: three phases ---------------------------------------
-   Reproduced from the reference loading component, whose source drives all three
-   phases from REAL TASK COMPLETION rather than a timer. The component keeps a count of
-   finished tasks and a total, and every visual is a function of done/total:
+/* ==========================================================================
+   Loading screen — four-phase progress, eased throughout.
 
-     phase 1  pre-response     progress 0, backdrop blurred by the FULL amount
-     phase 2  linear loading   bar grows as tasks finish, backdrop de-focuses with it
-     phase 3  fill and enter   the band fills the screen, holds, then the page enters
+   Reproduced from the reference sites the operator named, then adjusted to the shape
+   they specified. The structural facts come from tongdiaojihua.com's stylesheet:
 
-   The phase-3 hold is the part that gives the transition its weight: the component
-   waits 1500ms after the band starts filling before it considers itself loaded (and
-   2400ms before handing over). An earlier version of this file removed the overlay
-   ~960ms after the wipe began, which cut the hold off entirely and is why the
-   transition felt abrupt.
+     .app-loading-overlay        fixed, full-bleed, #151515, z-index above everything,
+                                  opacity .4s ease-out .5s on the way out
+     .app-loading-overlay:before a full-bleed primary-coloured block, transform-origin:0,
+                                  transition transform .5s cubic-bezier(.76,0,.24,1),
+                                  scaleX(0) -> scaleX(1)          <- the left-to-right fill
+     .progress-bar-container      12px wide, full height           <- the bar is ALWAYS thick
+     .progress-fill               height: var(--progress), transition height .2s ease-out
+     .progress-info               follows the progress value: top: var(--progress)
 
-   Two of the operator's requirements are applied on top of the reproduction: every
-   movement is vertical, and every easing is `linear`. The reference grows the bar
-   horizontally in portrait and vertically in landscape; here it is vertical in BOTH,
-   and the orientation query only adjusts sizing. The reference uses a spring for the
-   bar and a linear curve for the band; here both are linear.
+   Three changes from this file's previous revision, all requested:
 
-   The progress custom property is written by assets/consent.js and drives the bar, the
-   figure, the caption position and the backdrop blur from one value.
-   ------------------------------------------------------------------------ */
+     * the rail is a constant 12px. It used to be 6px and double at 100%, which was a
+       separate beat; the reference bar is simply thick all the way up.
+     * every timing is a bezier. The previous revision was linear on purpose; that is
+       superseded. The two curves that matter are the standard ease-in-out for the rail and
+       cubic-bezier(.76,0,.24,1) for the fill, the latter taken from the reference verbatim.
+     * the fill starts the instant progress reaches 100%. The pause and the thickening that
+       used to sit between them are gone -- waiting there is what read as a flicker.
+
+   The progress variable is a LENGTH in pixels, not a ratio: the reference uses
+   `height: var(--progress)` and `top: var(--progress)` directly, so the same value drives
+   the bar's fill and the readout's travel without either needing to know the viewport.
+   ========================================================================== */
+
 .boot {
   position: fixed;
   inset: 0;
@@ -273,9 +279,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* The reference groups its mark, deco plate, rule and slogan into one column with
-     tight internal spacing. Without a gap they read as separate floating objects, which
-     is how the first version looked. */
   justify-content: center;
   gap: var(--sp-3);
   margin: 0;
@@ -287,10 +290,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 }
 .boot[hidden] { display: none; }
 
-/* Backdrop. The blur is a FUNCTION of progress: fully defocused while the first
-   response is outstanding, sharp by the time the last task finishes. That is the
-   reference's `blur(8 - done/total*8)px`, written as a calc on the same custom
-   property so it needs no per-frame JavaScript. */
+/* Backdrop, defocused by the same progress value: sharp by the time the bar completes. */
 .boot__bg {
   position: absolute;
   inset: -6%;
@@ -299,12 +299,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
     radial-gradient(90% 80% at 88% 84%, color-mix(in oklab, var(--secondary) 24%, transparent), transparent 60%),
     linear-gradient(160deg, oklch(0.22 0.02 240), oklch(0.13 0.01 240));
   filter: blur(calc(8px - (var(--boot-progress, 0) * 8px)));
-  /* Same 0.5s tween the reference animates this with, on a linear curve. */
-  transition: filter 500ms linear;
+  transition: filter 500ms cubic-bezier(0.22, 1, 0.36, 1);
   transform: scale(1.04);
 }
 
-/* --- phase 2/3 content -------------------------------------------------- */
 .boot__logo,
 .boot__moreDeco,
 .boot__progress,
@@ -313,8 +311,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   z-index: 1;
 }
 
-/* The mark: a square frame with a rule scanning down it, and a glyph riding a
-   vertical orbit. All linear. */
+/* --- the mark ----------------------------------------------------------- */
 .boot__logo {
   width: 96px;
   height: 96px;
@@ -322,7 +319,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   place-items: center;
   border: 1px solid color-mix(in oklab, #fff 22%, transparent);
   overflow: hidden;
-  animation: boot-rise 420ms linear both;
+  animation: boot-rise 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .boot__glyph {
   position: relative;
@@ -330,7 +327,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   width: 26px;
   height: 26px;
   border: 2px solid var(--primary);
-  animation: boot-orbit 2.4s linear infinite;
+  animation: boot-orbit 2.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
 .boot__glyph::after {
   content: "";
@@ -349,7 +346,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   height: 2px;
   background: var(--primary);
   opacity: 0.8;
-  animation: boot-scan 1.6s linear infinite;
+  animation: boot-scan 1.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
 @keyframes boot-rise {
   from { opacity: 0; transform: translateY(14px); }
@@ -365,7 +362,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   100% { transform: translateY(46px); }
 }
 
-/* --- the deco block: mark, rule, slogan, corner marks ------------------- */
+/* --- the deco group ----------------------------------------------------- */
 .boot__moreDeco {
   display: flex;
   flex-direction: column;
@@ -373,10 +370,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   gap: var(--sp-3);
   white-space: nowrap;
   margin-top: calc(-1 * var(--sp-1));
-  animation: boot-rise 420ms linear 60ms both;
+  animation: boot-rise 520ms cubic-bezier(0.22, 1, 0.36, 1) 70ms both;
 }
-/* The plate sits directly under the mark, as in the reference, rather than floating in
-   the gap between the mark and the rule. */
 .boot__moreDeco .boot__deco {
   width: 141px;
   height: 56px;
@@ -397,7 +392,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   letter-spacing: 0.06em;
   color: color-mix(in oklab, #fff 82%, transparent);
 }
-/* Two small stacked triangles, as the reference draws its corner mark. */
 .boot__triangles {
   width: 23px;
   height: 21px;
@@ -408,56 +402,48 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
       color-mix(in oklab, var(--primary) 50%, transparent) 0 25%, transparent 0) bottom / 100% 48% no-repeat;
 }
 
-/* --- the progress rail: vertical in both orientations ------------------- */
+/* --- the rail: a constant 12px, filled by the progress value ------------ */
+/* Thick all the way up, as the reference bar is, and as asked for. No growth at the end:
+   the width never changes, so there is nothing to trigger a flash on completion. */
 .boot__progress {
   position: absolute;
   left: 0;
   top: 0;
-  /* Thickness is a token so the finished state can double it in one place. */
-  width: var(--boot-rail-w, 6px);
+  width: var(--boot-rail-w, 12px);
   height: 100%;
   margin: 0;
-  transition: width 220ms linear;
-  animation: boot-rise 420ms linear 120ms both;
+  animation: boot-rise 520ms cubic-bezier(0.22, 1, 0.36, 1) 140ms both;
 }
-/* At 100% the rail thickens to roughly twice its width. That is what marks the end of
-   the count and hands the eye to the exit. The figure shifts right by the same amount so
-   it does not end up sitting on the wider bar. */
-.boot--full { --boot-rail-w: 12px; }
-.boot--full .boot__progressText { left: calc(3.125rem + 6px); }
+/* The unfilled rail, so the filled part reads against something. */
+.boot__progress::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in oklab, #fff 22%, transparent);
+  z-index: -1;
+}
+/* Height comes straight from the progress length, exactly as the reference does it. The
+   four-phase shape lives in the TRANSITION: see assets/consent.js, which re-points this
+   property as the load moves from startup to sustain to deceleration to rest. */
 .boot__progressBar {
   position: absolute;
   left: 0;
   top: 0;
   width: 100%;
-  height: 100%;
-  transform: scaleY(var(--boot-progress, 0));
-  transform-origin: center top;
+  height: var(--boot-progress-px, 0px);
   background: linear-gradient(180deg,
     var(--primary),
     color-mix(in oklab, var(--primary) 78%, #fff));
-  /* Same speed as the band that ends the screen, so the rail and the exit read as one
-     system rather than two unrelated timings. */
-  transition: transform 620ms linear;
-}
-/* The unfilled rail has to be legible or the bar reads as a smudge against the dark
-   field: at 12% white the filled and empty halves were nearly the same value. */
-.boot__progress::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: color-mix(in oklab, #fff 26%, transparent);
-  z-index: -1;
+  transition: height 520ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* The figure rides the progress: in landscape it sits at the top of the filled part and
-   travels down as the bar grows. */
+/* The readout rides the top of the filled part, as the reference positions it. */
 .boot__progressText {
   position: absolute;
-  left: 3.125rem;
-  top: calc(var(--boot-progress, 0) * 100%);
+  left: calc(var(--boot-rail-w, 12px) + var(--sp-6));
+  top: var(--boot-progress-px, 0px);
   transform: translateY(-50%);
-  transition: top 620ms linear;
+  transition: top 520ms cubic-bezier(0.22, 1, 0.36, 1);
   display: flex;
   flex-direction: column;
   gap: var(--sp-1);
@@ -472,20 +458,15 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   white-space: nowrap;
 }
 .boot__value {
-  font-size: clamp(2.25rem, 1.1rem + 4.4vw, 4.375rem);
+  font-size: clamp(2.5rem, 1.2rem + 4.6vw, 3.5rem);
   font-weight: var(--w-bold);
   letter-spacing: -0.03em;
 }
 .boot__symbol {
-  font-size: clamp(1.35rem, 0.7rem + 2.2vw, 3.25rem);
+  font-size: clamp(1.4rem, 0.7rem + 2.3vw, 2rem);
   font-weight: var(--w-regular);
   opacity: 0.75;
 }
-/* The caption carries the same two-notch mark the reference puts above its status
-   line. It has its OWN class rather than sharing `.boot__deco` with the block above the
-   slogan: `setCaption` rewrites the caption's text, so anything sharing the node gets
-   rewritten with it -- and the first version of this shared the class, which made the
-   caption render every locale at once ("Verifying… / 正在验证… / 正在驗證…"). */
 .boot__caption {
   position: relative;
   padding-top: 12px;
@@ -524,78 +505,83 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .boot__error[hidden] { display: none; }
 [data-cap-host] { position: relative; z-index: 1; }
 
-/* --- phase 3: fill the screen, hold, then enter ------------------------ */
-/* Two independent things happen, exactly as in the reference:
-     `leaving`      starts the band, which wipes DOWN the screen (620ms, linear) and
-                    raises the priority corner marks
-     the fade       is delayed by BAND_MS + HOLD_MS, so the screen stays filled and
-                    still for 1500ms before anything is revealed
-   The hold is the whole point. Removing the overlay as soon as the band finished is
-   what made the earlier version feel like a flicker rather than an entrance. */
+/* --- the fill: start, accelerate, stop, then fade ---------------------- */
+/* Four phases on one element, which is how the reference does it -- the block scales from
+   the left edge while the overlay's own opacity lags behind it on a delay.
+ *
+ * The curve is the reference's own: cubic-bezier(.76, 0, .24, 1), a symmetric ease-in-out
+ * that is slow at the left edge, fast through the middle and slow again at the right. */
 .boot--leaving::after {
   content: "";
   position: absolute;
   inset: 0;
   z-index: 2;
-  /* LEFT TO RIGHT, and this is a direct reproduction rather than a preference. The
-     reference's own rule is `transform-origin: left; transform: scaleX(0)` with
-     `background-color: #fffa00`, and the operator asked for exactly that ending. An
-     earlier revision here made this vertical along with the rest of the screen, which
-     was wrong: this is the one movement in the reference that is horizontal, and the
-     progress rail is the one that is vertical. */
   transform-origin: left center;
   transform: scaleX(0);
   background: linear-gradient(90deg,
     var(--primary),
     color-mix(in oklab, var(--primary) 70%, #fff));
-  /* Slow on the left, accelerating to the right. cubic-bezier(0.42, 0, 1, 1) is an
-     ease-IN, which is precisely "left slow, right fast". This is the one curve on the
-     screen that is not linear, and it is here because it was asked for by name. */
-  animation: boot-fadeIn 620ms cubic-bezier(0.42, 0, 1, 1) forwards;
+  animation: boot-fill 760ms cubic-bezier(0.76, 0, 0.24, 1) forwards;
 }
-@keyframes boot-fadeIn {
+@keyframes boot-fill {
   0%   { transform: scaleX(0); }
   100% { transform: scaleX(1); }
 }
-/* Once the band has covered the screen, the content that was animating behind it is
-   pointless to keep painting. */
+/* The content clears out as the block arrives under it, so the block does not sweep over a
+   readout that is still painting. */
 .boot--leaving .boot__logo,
 .boot--leaving .boot__moreDeco,
-.boot--leaving .boot__progress { animation: none; }
-.boot--leaving .boot__glyph,
-.boot--leaving .boot__logo::before { animation: none; }
-
-/* The corner marks the reference raises on leaving. */
-.boot--leaving .boot__triangles {
-  position: absolute;
-  left: max(1.5rem, 3vw);
-  bottom: max(1.5rem, 3vh);
-  width: 23px;
-  height: 21px;
+.boot--leaving .boot__progress,
+.boot--leaving .boot__error {
+  animation: boot-out 300ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes boot-out {
+  to { opacity: 0; }
 }
 
-/* The overlay itself only fades once the band has arrived and held. */
+/* The overlay's own fade, delayed until the block has covered the screen. Same structure
+   and near-identical timing as the reference (`.4s ease-out .5s`), expressed as the last
+   phase of the fill rather than as a separate beat. */
 .boot--done {
   opacity: 0;
-  transition: opacity 350ms linear;
+  transition: opacity 400ms cubic-bezier(0, 0, 0.58, 1) 500ms;
 }
-/* The page fades in over the same window, so the two cross-fade rather than the overlay
-   lifting off a page that was already fully visible underneath. Only the document's
-   opacity animates; the background stays solid, so nothing shows through to the browser
-   chrome mid-transition. */
+
+/* The page cross-fades in over the same window. */
 html.boot-entering body { opacity: 0; }
 html.boot-entering.boot-entered body {
   opacity: 1;
-  transition: opacity 350ms linear;
+  transition: opacity 400ms cubic-bezier(0, 0, 0.58, 1);
 }
 
 /* --- sizing only: the axis never changes -------------------------------- */
 @media (orientation: portrait) {
-  .boot__progressText { left: 1.75rem; }
-  .boot__value { font-size: clamp(2rem, 1rem + 6vw, 3.25rem); }
+  .boot__progressText { left: calc(var(--boot-rail-w, 12px) + var(--sp-5)); }
+  .boot__value { font-size: clamp(2rem, 1rem + 6vw, 3rem); }
   .boot__slogan { font-size: 1.05rem; letter-spacing: 0.04em; }
   .boot__moreDeco .boot__deco { width: 96px; height: 44px; }
-}/* --- focus visibility --------------------------------------------------- */
+}
+
+/* --- motion on request --------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .boot__logo,
+  .boot__moreDeco,
+  .boot__progress,
+  .boot__hint,
+  .boot__error { animation: none; }
+  .boot__logo::before,
+  .boot__glyph { animation: none; }
+  .boot__progressBar,
+  .boot__progressText,
+  .boot__bg { transition: none; }
+  /* The fill is not removed, only collapsed: the screen still has to clear, and an
+     instant clear is the reduced-motion equivalent of the same event. */
+  .boot--done { transition: opacity 120ms linear; }
+  .boot--leaving::after { animation-duration: 1ms; }
+  html.boot-entering.boot-entered body { transition: none; }
+  .btn { transition: none; }
+
+/* --- focus visibility --------------------------------------------------- */
 :focus-visible { outline: none; box-shadow: var(--focus-ring) !important; }
 
 /* --- misc --------------------------------------------------------------- */
