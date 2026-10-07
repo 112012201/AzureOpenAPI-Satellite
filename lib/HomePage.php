@@ -110,6 +110,45 @@ final class HomePage
     }
 
     /**
+     * Cache-busting query for a vendored asset, derived from its content hash.
+     *
+     * The assets are served with `immutable, max-age=7d`, which is right for files that
+     * never change and wrong the moment one does: a browser that already holds
+     * consent.js keeps executing the old copy for a week, and the fix never reaches it.
+     * This cost real debugging time -- an integration fix was deployed, the server and
+     * the CDN both served it, and the browser still ran the previous version from cache.
+     *
+     * The hash is computed once per request per file. The file is small, and the
+     * alternative (a build step writing versions into a manifest) would add a moving part
+     * to a project that deploys by copying files.
+     *
+     * @param string $relative path under assets/
+     * @return string '?v=abcdef12' or '' when the file is missing
+     */
+    /**
+     * Template-facing alias for assetQuery(), because the partials call it.
+     */
+    public static function assetQueryFor($relative)
+    {
+        return self::assetQuery($relative);
+    }
+
+    private static function assetQuery($relative)
+    {
+        static $cache = array();
+        $relative = (string) $relative;
+        if (array_key_exists($relative, $cache)) {
+            return $cache[$relative];
+        }
+        $path = __DIR__ . '/../assets/' . ltrim($relative, '/');
+        $cache[$relative] = is_file($path)
+            ? '?v=' . substr(hash('sha256', (string) file_get_contents($path)), 0, 8)
+            : '';
+
+        return $cache[$relative];
+    }
+
+    /**
      * Render a partial with a controlled variable scope.
      *
      * The partials are plain PHP that expect a handful of variables; isolating them
@@ -165,7 +204,7 @@ final class HomePage
             '<link rel="alternate icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">',
             '<link rel="apple-touch-icon" href="/apple-touch-icon.png">',
             '<link rel="manifest" href="/site.webmanifest">',
-            '<link rel="stylesheet" href="/assets/app.css">',
+            '<link rel="stylesheet" href="/assets/app.css' . self::assetQuery('app.css') . '">',
             // Apply a stored theme before first paint; guarded because storage can
             // throw in private mode.
             '<script>(function(){try{var c=window.localStorage.getItem("satapi-theme");'

@@ -58,6 +58,14 @@ final class CapBootstrap
      * page that depends on it: a stale copy pointing at a version we no longer vendor
      * would break the challenge in a way that is hard to diagnose.
      *
+     * The URLs are the COMPLETE asset paths, not directories. The widget does
+     * `fetch(CAP_CUSTOM_WASM_URL).then(r => r.arrayBuffer()).then(WebAssembly.compile)`
+     * and likewise for hashwx, so each variable must name a `.wasm` file. Pointing them
+     * at a directory produced a request for the directory itself, which 404'd and left
+     * the overlay stuck on "Verifying" -- a silent failure, because a failed wasm load
+     * only logs a debug line. CAP_PAKO_URL is a <script src>, but the same reasoning
+     * applies: name the file.
+     *
      * @return string
      */
     public static function render()
@@ -66,8 +74,10 @@ final class CapBootstrap
 
         return '<script>(function(){'
             . 'var b=' . json_encode($base, JSON_UNESCAPED_SLASHES) . ';'
-            . 'window.CAP_CUSTOM_WASM_URL=b+"/@cap.js/wasm@' . self::WASM_VERSION . '";'
+            // fetch() targets: full file paths.
+            . 'window.CAP_CUSTOM_WASM_URL=b+"/cap_wasm_bg.wasm";'
             . 'window.CAP_CUSTOM_HASHWX_URL=b+"/hashwx.wasm";'
+            // <script src> target: also the file itself.
             . 'window.CAP_PAKO_URL=b+"/pako_inflate.min.js";'
             // Cap prints a version banner to the console unless silenced; the banner
             // is useful while wiring the challenge up and noise afterwards.

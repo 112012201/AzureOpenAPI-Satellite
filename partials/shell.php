@@ -217,5 +217,5 @@ window.__SATAPI_BOOT__ = <?php echo json_encode(array(
     'hasConsentCookie' => $cookieStatus['decided'],
 ), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 </script>
-<script src="/assets/consent.js" defer></script>
-<script src="/assets/app.js" defer></script>
+<script src="/assets/consent.js<?php echo \SatApi\HomePage::assetQueryFor('consent.js'); ?>" defer></script>
+<script src="/assets/app.js<?php echo \SatApi\HomePage::assetQueryFor('app.js'); ?>" defer></script>

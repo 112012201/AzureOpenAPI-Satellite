@@ -257,37 +257,101 @@
         else if (document.body) { document.body.appendChild(host); }
       }
 
+      // The widget reports its result by writing into an input named by
+      // data-cap-hidden-field-name. It renders that input itself, but it needs the
+      // attribute to know the name, and the value to read afterwards -- relying only on
+      // a `solve` event produced no challenge request at all in testing, so the input is
+      // the contract we drive.
+      var fieldName = 'cap-token';
       var widget = document.createElement('cap-widget');
-      // The widget appends "/challenge" and "/<sitekey>/redeem" to this value.
-      widget.setAttribute('data-cap-api-endpoint', endpoint + '/');
-      // The page does not post a form; the token is read from the solve event.
-      widget.setAttribute('data-cap-hidden-field-name', 'cap-token');
+      // The site key is a PATH PREFIX, not a body field. Cap's challenge endpoint is
+      // POST /{siteKey}/challenge -- posting to /challenge without it answers 500
+      // ("Internal server error"), which the widget surfaces as a network_error and the
+      // visitor sees as a challenge that never finishes. Measured: /cap/{siteKey}/challenge
+      // -> 200 with a real token, /cap/challenge -> 500. So the endpoint has to carry the
+      // key even though the attribute also exists.
+      var base = endpoint + '/';
+      if (siteKey) { base = endpoint + '/' + encodeURIComponent(siteKey) + '/'; }
+      widget.setAttribute('data-cap-api-endpoint', base);
+      widget.setAttribute('data-cap-hidden-field-name', fieldName);
       if (siteKey) { widget.setAttribute('data-cap-site-key', siteKey); }
       host.appendChild(widget);
 
       var settled = false;
-      var timer = window.setTimeout(function () {
-        if (settled) { return; }
-        settled = true;
-        reject(new Error('challenge timed out'));
-      }, 20000);
+      var deadline = Date.now() + 45000;
+      var errors = [];
+      widget.addEventListener('error', function (e) {
+        errors.push((e && e.detail) ? String(e.detail) : 'widget error');
+      });
 
+      // Start the challenge explicitly.
+      //
+      // A widget that is created with document.createElement and appended does not begin
+      // on its own -- measured over several runs: it fetched its WASM and then sat idle,
+      // never posting to /challenge, until solve() was called. Calling it once the element
+      // is connected is what makes the flow start. The declared method exists on the
+      // element (solve, reset, tokenValue), so this is the documented entry point rather
+      // than a private hook.
+      function begin(attempt) {
+        if (settled || !widget.solve) { return; }
+        try {
+          widget.solve();
+        } catch (e) {
+          // A solve() that throws because the element is not ready yet is retried below;
+          // one that throws twice is reported by the polling timeout.
+          if (attempt < 6) {
+            window.setTimeout(function () { begin(attempt + 1); }, 300);
+          }
+        }
+      }
+      // One tick after insertion, so the custom element is upgraded and connected.
+      window.setTimeout(function () { begin(0); }, 60);
+
+      function token() {
+        // The input may live inside the widget's own DOM (light or shadow).
+        var found = null;
+        function look(root) {
+          if (!root || found) { return; }
+          var input = root.querySelector && root.querySelector('input[name="' + fieldName + '"]');
+          if (input && input.value) { found = input.value; return; }
+          var all = root.querySelectorAll ? root.querySelectorAll('*') : [];
+          for (var i = 0; i < all.length; i++) {
+            if (all[i].shadowRoot) { look(all[i].shadowRoot); if (found) { return; } }
+          }
+        }
+        look(document);
+        if (found) { return found; }
+        found = null;
+        look(widget);
+        if (found) { return found; }
+        if (widget.shadowRoot) { look(widget.shadowRoot); }
+        return found;
+      }
+
+      (function poll() {
+        if (settled) { return; }
+        var t = token();
+        if (t) {
+          settled = true;
+          resolve(t);
+          return;
+        }
+        if (Date.now() > deadline) {
+          settled = true;
+          reject(new Error(errors.length ? errors.join('; ') : 'challenge timed out'));
+          return;
+        }
+        window.setTimeout(poll, 400);
+      })();
+
+      // Some widget versions do emit `solve`; accept it as a shortcut so a working
+      // event does not have to wait for the poll.
       widget.addEventListener('solve', function (event) {
         if (settled) { return; }
-        settled = true;
-        window.clearTimeout(timer);
-        var token = '';
         var detail = event && event.detail;
-        if (typeof detail === 'string') { token = detail; }
-        else if (detail) { token = detail.token || (detail[0] && detail[0].token) || ''; }
-        if (!token) { reject(new Error('challenge returned no token')); return; }
-        resolve(token);
-      });
-      widget.addEventListener('error', function () {
-        if (settled) { return; }
-        settled = true;
-        window.clearTimeout(timer);
-        reject(new Error('challenge failed'));
+        var t = typeof detail === 'string' ? detail
+          : (detail && (detail.token || (detail[0] && detail[0].token))) || '';
+        if (t) { settled = true; resolve(t); }
       });
     });
   }
