@@ -609,12 +609,24 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   transition: opacity 400ms cubic-bezier(0, 0, 0.58, 1) 500ms;
 }
 
-/* The page cross-fades in over the same window. */
-html.boot-entering body { opacity: 0; }
-html.boot-entering.boot-entered body {
-  opacity: 1;
-  transition: opacity 400ms cubic-bezier(0, 0, 0.58, 1);
-}
+/*
+ * There is deliberately NO page fade here, and adding one back is what produces a white flash.
+ *
+ * The overlay carries `background: var(--surface)` -- an opaque fill -- so the page is already
+ * covered for the whole of loading and never needed hiding. A rule that fades the page has to be
+ * written against `body` or a wrapper, and the overlay is rendered INSIDE <body>: measured, the
+ * moment `boot-entering` landed the whole screen went to luminance 255 (pure white, the body's own
+ * background) before falling back to 64 as the body faded in. The tile sweep then only became
+ * visible at fill scaleX 0.68, i.e. after it was three-quarters done.
+ *
+ *   -19ms  lum 255.0  bodyOp 0.069  fill 0.00    <- blank white
+ *   -17ms  lum 111.8  bodyOp 0.728  fill 0.07
+ *   -15ms  lum  68.8  bodyOp 1.000  fill 0.68    <- the sweep finally visible
+ *
+ * Peak rise was 247 luma per 100ms with a 40-point overshoot past the page's own brightness. With
+ * the page left solid the whole hand-off is the overlay's own delayed fade over an opaque page,
+ * which is what the reference does and what the numbers above are the argument against undoing.
+ */
 
 /* --- sizing only: the axis never changes -------------------------------- */
 @media (orientation: portrait) {

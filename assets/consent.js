@@ -208,8 +208,9 @@
   var PHASE_FILL_MS = 760;     // the fill's own duration (md3.css boot-fill)
   var PHASE_FADE_MS = 400;     // the overlay's fade, on a 500ms delay (the .boot--done rule)
   var PHASE_FADE_DELAY_MS = 500;
-  var PHASE_CROSSFADE_MS = 400;
   var PHASE_TOTAL_MS = PHASE_FILL_MS + PHASE_FADE_DELAY_MS + PHASE_FADE_MS;
+  // There is no page-fade constant: the page is never faded. The hand-off is the fill and the
+  // overlay's own delayed fade, over a page that stays opaque the whole time.
   var BOOT_MIN_MS = 2000;      // minimum dwell: the four-segment roll needs room to be seen
 
   /*
@@ -564,9 +565,11 @@
     // There is still no dwell once it arrives; this waits on the value, not on a timer.
     window.setTimeout(function () {
       settleRoll(function () {
-        // Straight into the fill: no intermediate class, no hold.
+        // Straight into the fill: no intermediate class, no hold, and no page fade. The overlay is
+        // opaque and still covers the page, so nothing needs hiding -- and a rule that hid the
+        // page would take the overlay with it, since the overlay lives inside <body>. See the note
+        // in md3.css where the page-fade rules used to be.
         el.classList.add('boot--leaving');
-        enterCrossfade();
         window.setTimeout(function () {
           el.classList.add('boot--done');
         }, PHASE_FILL_MS);
@@ -594,28 +597,6 @@
       window.requestAnimationFrame(poll);
     }
     window.requestAnimationFrame(poll);
-  }
-
-  /**
-   * Mark the document so the page cross-fades in.
-   *
-   * Two classes rather than one so the browser has a style to transition FROM: the starting
-   * state has to be in effect before the ending state is added, or there is nothing to
-   * interpolate.
-   *
-   * The two classes land in the same tick, as the reference does it. An earlier attempt spread
-   * them across the fill's duration to keep the page hidden behind the block -- which also hid
-   * the block, because the overlay is rendered inside <body> and the hidden state applies to
-   * `body`. The fill ran invisibly and the screen then cut in with no motion: the tile animation
-   * appeared to have been removed.
-   */
-  function enterCrossfade() {
-    var root = document.documentElement;
-    root.classList.add('boot-entering');
-    // Force the starting style to take effect. Without this the two class changes land in
-    // the same style recalculation and the fade is skipped.
-    void root.offsetHeight;
-    root.classList.add('boot-entered');
   }
 
   function bootText(key, fallback) {

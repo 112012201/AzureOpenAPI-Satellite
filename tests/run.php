@@ -1252,7 +1252,6 @@ T::truthy((bool) preg_match('#settleRoll\\(function \\(\\) \\{\\s*// Straight in
 foreach (array(
     'PHASE_FILL_MS = 760'       => 'the fill duration matches the stylesheet animate',
     'PHASE_FADE_DELAY_MS = 500' => 'the overlay fade is delayed until the fill has crossed',
-    'PHASE_CROSSFADE_MS = 400'  => 'the page cross-fades over the same window',
     'BOOT_TRAVEL_MS = 1250'     => 'the roll has a defined travel time',
 ) as $needle => $label) {
     T::truthy(strpos($consentJs, $needle) !== false, 'timing: ' . $label);
@@ -1260,38 +1259,30 @@ foreach (array(
 // The stylesheet animate and the script constant must agree, or the fade lands mid-fill.
 T::truthy((bool) preg_match('#boot-fill 760ms#', $loaderRules), 'the stylesheet animate is 760ms, matching PHASE_FILL_MS');
 
-// --- the cross-fade ---------------------------------------------------------
-T::truthy(strpos($loaderRules, 'html.boot-entering body') !== false, 'the page has a pre-fade state');
-T::truthy(strpos($loaderRules, 'html.boot-entering.boot-entered body') !== false, 'the page has a post-fade state');
-T::truthy(strpos($consentJs, 'function enterCrossfade') !== false, 'the script drives the cross-fade');
-T::truthy((bool) preg_match('#void root\\.offsetHeight#', $consentJs), 'a reflow is forced between the two cross-fade classes, or the fade is skipped');
-// Both classes land in the same tick. An attempt to spread them across the fill's duration, to
-// keep the page hidden behind the block, also hid the BLOCK -- the overlay is rendered inside
-// <body>, so `body { opacity: 0 }` takes the overlay out of sight too. The fill then ran
-// invisibly and the screen cut in with no motion: the tile animation appeared to be gone.
+// --- the hand-off: the overlay fades, the page does NOT ---------------------
+// The page fade was removed and must not come back. The overlay is rendered inside <body> and
+// carries an opaque background, so a rule that fades the page blanks the overlay with it. It
+// was measured doing exactly that: pure white (luminance 255) at the instant the fade started,
+// a 247-per-100ms rise with a 40-point overshoot past the page's own brightness, and the tile
+// sweep only becoming visible at fill scaleX 0.68. The overlay's own delayed fade over a page
+// that stays opaque is the entire hand-off.
 T::truthy(
-    (bool) preg_match('#function enterCrossfade\\(\\) \\{.*?classList\\.add\\(.boot-entering.\\).*?void root\\.offsetHeight;\\s*root\\.classList\\.add\\(.boot-entered.\\);#s', $consentJs),
-    'the cross-fade adds both classes in one tick, as the reference does'
-);
-T::truthy(
-    strpos($consentJs, "'boot-entered')") === false || (bool) preg_match('#setTimeout\\(function \\(\\) \\{\\s*root\\.classList\\.add\\(.boot-entered.#', $consentJs) === false,
-    'the reveal is not deferred behind the fill'
-);
-// The page fade is a transition, not an instant cut, and the overlay fade is the reference's
-// delayed one. Both were changed during the attempt and are asserted here so a revert cannot
-// silently leave the cut in place.
-T::truthy(
-    (bool) preg_match('#html\\.boot-entering\\.boot-entered body \\{[^}]*opacity: 1;[^}]*transition: opacity 400ms cubic-bezier\\(0, 0, 0\\.58, 1\\)#s', $loaderRules),
-    'the page cross-fades over 400ms rather than cutting in'
-);
-T::truthy(
-    (bool) preg_match('#\\.boot--done \\{[^}]*transition: opacity 400ms cubic-bezier\\(0, 0, 0\\.58, 1\\) 500ms#s', $loaderRules),
+    (bool) preg_match('#\.boot--done \{[^}]*transition: opacity 400ms cubic-bezier\(0, 0, 0\.58, 1\) 500ms#s', $loaderRules),
     'the overlay fade is delayed 500ms after the fill, as the reference does'
 );
-// A rule that hides the whole body cannot be used here: it hides the overlay with it.
+foreach (array('html.boot-entering body', 'html.boot-entering.boot-entered', 'boot-entering', 'boot-entered') as $gone) {
+    T::truthy(strpos($loaderRules, $gone) === false, 'no page-fade rule remains in the stylesheet: ' . $gone);
+    T::truthy(strpos($consentJs, str_replace('html.', '', $gone)) === false, 'no page-fade hook remains in the script: ' . $gone);
+}
+T::truthy(strpos($consentJs, 'enterCrossfade') === false, 'the cross-fade helper is gone rather than left as dead code');
+T::truthy(strpos($consentJs, 'PHASE_CROSSFADE_MS') === false, 'the page-fade constant is gone too');
+// The overlay really is opaque, which is what makes hiding the page unnecessary in the first
+// place. Asserted against the declaration that actually paints: background-color inside the
+// loader block, which overrides the shorthand set for .boot earlier in the file. If it ever
+// becomes translucent, the hand-off needs reconsidering.
 T::truthy(
-    (bool) preg_match('#html\\.boot-entering\\.boot-entered body \\{[^}]*transition: none#s', $loaderRules) === false,
-    'the page is not cut in with transition: none'
+    (bool) preg_match('#\.boot \{[^}]*background-color: var\(--boot-ink#s', $loaderRules),
+    'the overlay has an opaque background, so the page is covered and never needs hiding'
 );
 
 // --- the challenge widget is hidden until it is wanted ----------------------
