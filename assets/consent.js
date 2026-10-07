@@ -208,9 +208,11 @@
   var PHASE_FILL_MS = 760;     // the fill's own duration (md3.css boot-fill)
   var PHASE_FADE_MS = 400;     // the overlay's fade, on a 500ms delay (the .boot--done rule)
   var PHASE_FADE_DELAY_MS = 500;
-  var PHASE_TOTAL_MS = PHASE_FILL_MS + PHASE_FADE_DELAY_MS + PHASE_FADE_MS;
-  // There is no page-fade constant: the page is never faded. The hand-off is the fill and the
-  // overlay's own delayed fade, over a page that stays opaque the whole time.
+  // The hold at the finished count, before the block starts crossing. The operator asked for
+  // 0.2-0.4s; 300ms is the middle of that, and it is the one beat in the sequence that exists for
+  // the reader rather than for the motion -- the last number is the thing the screen was for.
+  var PHASE_HOLD_MS = 300;
+  var PHASE_TOTAL_MS = PHASE_HOLD_MS + PHASE_FILL_MS + PHASE_FADE_DELAY_MS + PHASE_FADE_MS;
   var BOOT_MIN_MS = 2000;      // minimum dwell: the four-segment roll needs room to be seen
 
   /*
@@ -541,12 +543,10 @@
   /**
    * The fill.
    *
-   * There is deliberately no pause and no thickening beat between reaching 100% and the fill
-   * starting -- that gap is what read as a flicker. The moment the count lands, the block
-   * starts crossing.
-   *
-   * The rail's width is a constant 12px and never changes, so nothing about the bar animates at
-   * the end -- there is no width transition that could produce a flash on completion.
+   * There is one beat between reaching 100% and the fill, and it is deliberate: a hold of
+   * PHASE_HOLD_MS at the finished count. Nothing about the bar changes during it -- the rail is a
+   * constant 12px with no width transition -- so unlike the earlier hold-plus-thicken it cannot
+   * read as a flicker. It is there so the last number is actually read before the block crosses.
    */
   function finishBoot() {
     var el = overlay();
@@ -560,26 +560,27 @@
     // Wait for the count to actually arrive before covering the screen.
     //
     // Without this the fill starts while the display is still climbing -- measured 1265ms
-    // early, so the block swept over a readout that had not finished. That is the same class
-    // of fault as the pause this replaced: the ending has to follow the count, not race it.
-    // There is still no dwell once it arrives; this waits on the value, not on a timer.
+    // early, so the block swept over a readout that had not finished. The ending has to follow
+    // the count, not race it.
     window.setTimeout(function () {
       settleRoll(function () {
-        // Straight into the fill: no intermediate class, no hold, and no page fade. The overlay is
-        // opaque and still covers the page, so nothing needs hiding -- and a rule that hid the
-        // page would take the overlay with it, since the overlay lives inside <body>. See the note
-        // in md3.css where the page-fade rules used to be.
-        el.classList.add('boot--leaving');
+        // The count has arrived. Hold it, then cross.
         window.setTimeout(function () {
-          el.classList.add('boot--done');
-        }, PHASE_FILL_MS);
-        window.setTimeout(function () {
-          if (el.parentNode) { el.parentNode.removeChild(el); }
-          // Case 2: loading is finished and the page is in place, so the badge belongs on it.
-          // Revealed here rather than at `boot--done`, because the overlay is still on screen
-          // fading out until this point and the widget sits above it in the stack.
-          revealCapHost();
-        }, PHASE_FILL_MS + PHASE_FADE_DELAY_MS + PHASE_FADE_MS);
+          // No page fade here either: the overlay is opaque and still covers the page, so nothing
+          // needs hiding -- and a rule that hid the page would take the overlay with it, since the
+          // overlay lives inside <body>. See the note in md3.css where those rules used to be.
+          el.classList.add('boot--leaving');
+          window.setTimeout(function () {
+            el.classList.add('boot--done');
+          }, PHASE_FILL_MS);
+          window.setTimeout(function () {
+            if (el.parentNode) { el.parentNode.removeChild(el); }
+            // Case 2: loading is finished and the page is in place, so the badge belongs on it.
+            // Revealed here rather than at `boot--done`, because the overlay is still on screen
+            // fading out until this point and the widget sits above it in the stack.
+            revealCapHost();
+          }, PHASE_FILL_MS + PHASE_FADE_DELAY_MS + PHASE_FADE_MS);
+        }, PHASE_HOLD_MS);
       });
     }, wait);
   }

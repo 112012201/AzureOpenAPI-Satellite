@@ -1246,7 +1246,18 @@ T::truthy((bool) preg_match('#function settleRoll\\(#', $consentJs), 'the fill w
 T::truthy((bool) preg_match('#if \\(rollSettled\\(\\) \\|\\| Date\\.now\\(\\) - started > \\d+\\)#', $consentJs), 'the settle wait is bounded, so the screen cannot stand forever');
 T::truthy(strpos($consentJs, 'PHASE3_REST_MS') === false, 'there is no rest beat between the count and the fill');
 T::truthy(strpos($consentJs, 'PHASE3_BUFFER_MS') === false, 'there is no separate buffer beat either');
-T::truthy((bool) preg_match('#settleRoll\\(function \\(\\) \\{\\s*// Straight into the fill#s', $consentJs), 'the fill starts directly on settle, with no intervening step');
+// The hold at 100%: asked for at 0.2-0.4s, and asserted as a range rather than a value so the
+// operator can retune it inside that window without a test edit.
+T::truthy((bool) preg_match('#var PHASE_HOLD_MS = (\d+);#', $consentJs, $holdMatch), 'the hold constant exists');
+if (!empty($holdMatch[1])) {
+    $holdMs = (int) $holdMatch[1];
+    T::truthy($holdMs >= 200 && $holdMs <= 400, 'the hold is within 0.2-0.4s (got ' . $holdMs . 'ms)');
+}
+// The fill must start from inside that hold's callback, not in the same frame the count lands.
+T::truthy(
+    (bool) preg_match('#settleRoll\(function \(\) \{\s*//[^\n]*\n\s*window\.setTimeout\(function \(\) \{\s*//[^\n]*\n(?:\s*//[^\n]*\n)*\s*el\.classList\.add\(.boot--leaving.\);#s', $consentJs),
+    'the fill is held at 100% before it starts'
+);
 
 // --- the timings that remain ------------------------------------------------
 foreach (array(

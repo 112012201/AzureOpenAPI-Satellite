@@ -267,27 +267,23 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 /* ==========================================================================
    Loading screen — four-phase progress, eased throughout.
 
-   Reproduced from the reference sites the operator named, then adjusted to the shape
-   they specified. The structural facts come from tongdiaojihua.com's stylesheet:
+   Built from two reference sites. Their implementations are NOT restated here: they are kept
+   verbatim in docs/reference/loading/ (endfield-hypergryph.com.md, tongdiaojihua.com.md), with
+   the source URLs. Read those before changing anything below, and read them rather than this
+   comment -- a retelling drifts, the source does not.
 
-     .app-loading-overlay        fixed, full-bleed, #151515, z-index above everything,
-                                  opacity .4s ease-out .5s on the way out
-     .app-loading-overlay:before a full-bleed primary-coloured block, transform-origin:0,
-                                  transition transform .5s cubic-bezier(.76,0,.24,1),
-                                  scaleX(0) -> scaleX(1)          <- the left-to-right fill
-     .progress-bar-container      12px wide, full height           <- the bar is ALWAYS thick
-     .progress-fill               height: var(--progress), transition height .2s ease-out
-     .progress-info               follows the progress value: top: var(--progress)
+   Borrowed from tongdiaojihua.com: the constant-width rail, the pixel-length fill that also
+   positions the readout, the cubic-bezier(.76,0,.24,1) wipe, the delayed overlay fade.
+   Borrowed from endfield.hypergryph.com: every visual driven by real task completion.
 
-   Three changes from this file's previous revision, all requested:
+   Ours, and measured in this repository rather than copied:
 
-     * the rail is a constant 12px. It used to be 6px and double at 100%, which was a
-       separate beat; the reference bar is simply thick all the way up.
-     * every timing is a bezier. The previous revision was linear on purpose; that is
-       superseded. The two curves that matter are the standard ease-in-out for the rail and
-       cubic-bezier(.76,0,.24,1) for the fill, the latter taken from the reference verbatim.
-     * the fill starts the instant progress reaches 100%. The pause and the thickening that
-       used to sit between them are gone -- waiting there is what read as a flicker.
+     * the four-segment shares (0.28 / 0.38 / 0.22 / 0.12), searched to satisfy five properties
+       at once -- see the BOOT_SEGMENTS comment in assets/consent.js
+     * the 300ms hold at 100%, asked for by the operator
+     * the refusal to fade the page, and the luminance measurements behind that refusal
+     * constant 12px: it used to be 6px doubling at 100%, which was a separate beat
+     * every timing a bezier; the previous revision was linear on purpose, now superseded
 
    The progress variable is a LENGTH in pixels, not a ratio: the reference uses
    `height: var(--progress)` and `top: var(--progress)` directly, so the same value drives
