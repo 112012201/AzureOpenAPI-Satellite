@@ -96,7 +96,7 @@ final class Tle extends Base
                 'stamp'  => $lastModified,
                 'data'   => Parser::toJson($records),
             ));
-            Response::json(self::envelope(Parser::toJson($records), $meta), 200, $headers, $deferred);
+            self::respondData($request, Parser::toJson($records), $meta, 200, $headers, $deferred);
 
             return;
         }
@@ -169,7 +169,7 @@ final class Tle extends Base
                 'stamp'  => $lastModified,
                 'data'   => Parser::toJson($records),
             ));
-            Response::json(self::envelope(Parser::toJson($records), $meta), 200, $headers, $deferred);
+            self::respondData($request, Parser::toJson($records), $meta, 200, $headers, $deferred);
 
             return;
         }

@@ -4,7 +4,9 @@ namespace SatApi\Api\Endpoints;
 
 use SatApi\Config;
 use SatApi\Http\Request;
+use SatApi\Http\Response;
 use SatApi\Support\Legacy;
+use SatApi\Support\Problem;
 
 /**
  * Shared helpers for endpoint handlers: response envelope and caching headers.
@@ -39,6 +41,98 @@ abstract class Base
     protected static function envelope(array $data, array $meta)
     {
         return array('meta' => $meta, 'data' => $data);
+    }
+
+    /**
+     * Data-only envelope: `{"data": …, "generated": …, "count": …}`.
+     *
+     * Kept separate from `envelope()` rather than folded into it because the two
+     * shapes have different audiences: the full envelope carries per-request
+     * diagnostics, while this one exists so a client that parses the top level as
+     * an array can read the payload. `generated` and `count` survive on purpose --
+     * a bare array would leave the client unable to judge freshness.
+     *
+     * `total` is carried through when the caller knows it (paginated endpoints do),
+     * because a paging client needs the full size to know when to stop. It is not
+     * synthesised: an endpoint that has no such notion simply omits it.
+     *
+     * @param array $data
+     * @param array $meta the meta block produced by envelopeMeta()
+     * @return array<string,mixed>
+     */
+    protected static function dataOnlyEnvelope(array $data, array $meta)
+    {
+        $out = array('data' => $data);
+        foreach (array('generated', 'count', 'total') as $key) {
+            if (array_key_exists($key, $meta)) {
+                $out[$key] = $meta[$key];
+            }
+        }
+        // `count` must describe the payload actually returned, whatever the caller
+        // passed in the meta block. Paginated endpoints set meta.count correctly,
+        // but a future caller forgetting to would silently publish a wrong number.
+        $out['count'] = count($data);
+
+        return $out;
+    }
+
+    /**
+     * Resolve the requested envelope shape, or answer 400 and stop.
+     *
+     * Centralised so every JSON endpoint rejects an unsupported value the same way
+     * and none of them silently falls back to the default.
+     *
+     * @return string 'full' | 'none'
+     */
+    protected static function resolveEnvelope(Request $request)
+    {
+        $envelope = $request->envelope(array('full', 'none'));
+        if ($envelope === null) {
+            Problem::send(
+                400,
+                'Bad Request',
+                'Unsupported envelope. Use envelope=full ({"meta":…,"data":…}) or envelope=none ({"data":…,"generated":…,"count":…}).',
+                'bad_request',
+                array('parameter' => 'envelope', 'allowed' => array('full', 'none'))
+            );
+        }
+
+        return $envelope;
+    }
+
+    /**
+     * Send a JSON payload in the requested envelope shape.
+     *
+     * @param mixed $data
+     * @param array $meta
+     * @param int   $status
+     * @param array $headers
+     * @param mixed $defer
+     */
+    protected static function respondData(Request $request, $data, array $meta, $status = 200, array $headers = array(), $defer = null)
+    {
+        $envelope = self::resolveEnvelope($request);
+
+        // The envelope participates in the ETag: a client that switches shapes must
+        // not be handed a 304 for a representation it has never seen.
+        if (isset($headers['ETag'])) {
+            $headers['ETag'] = self::etag(array('envelope' => $envelope, 'etag' => $headers['ETag']));
+        }
+        // Merge, do not replace: Response::withDefaults() adds
+        // "Accept, Accept-Encoding" later, but a caller may already have set Vary,
+        // and clobbering it would let a cache serve one envelope for the other.
+        $vary = isset($headers['Vary']) ? trim((string) $headers['Vary']) : '';
+        if (stripos($vary, 'envelope') === false) {
+            $headers['Vary'] = $vary === '' ? 'envelope' : $vary . ', envelope';
+        }
+
+        if ($envelope === 'none') {
+            Response::json(self::dataOnlyEnvelope((array) $data, $meta), $status, $headers, $defer);
+
+            return;
+        }
+
+        Response::json(self::envelope((array) $data, $meta), $status, $headers, $defer);
     }
 
     /**
@@ -87,7 +181,7 @@ abstract class Base
      * @param array $parts
      * @return string
      */
-    protected static function etag(array $parts)
+    public static function etag(array $parts)
     {
         return '"' . substr(hash('sha256', json_encode($parts, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)), 0, 32) . '"';
     }

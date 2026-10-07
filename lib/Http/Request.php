@@ -50,6 +50,35 @@ final class Request
         return $request;
     }
 
+    /**
+     * Build a request from an explicit path, query and headers.
+     *
+     * `capture()` reads the SAPI superglobals, which makes negotiation rules
+     * (`format`, `envelope`, content type) awkward to exercise without spawning a
+     * process per case. The CLI tooling needs the same thing, so this is a
+     * first-class constructor rather than a test-only seam.
+     *
+     * @param string               $path    e.g. "/v1/tle/weather"
+     * @param array<string,string> $query   e.g. ['format' => 'json']
+     * @param array<string,string> $headers lowercase header names
+     * @param string               $method
+     * @return self
+     */
+    public static function fromParts($path, array $query = array(), array $headers = array(), $method = 'GET')
+    {
+        $request = new self();
+        $request->method = strtoupper((string) $method);
+        $request->query = $query;
+        $request->rawQuery = http_build_query($query);
+        $request->path = self::normalizePath($path);
+        foreach ($headers as $name => $value) {
+            $request->headers[strtolower((string) $name)] = (string) $value;
+        }
+        $request->requestId = self::generateRequestId();
+
+        return $request;
+    }
+
     private static function normalizePath($path)
     {
         $path = '/' . ltrim((string) $path, '/');
@@ -242,6 +271,48 @@ final class Request
         }
 
         return $format;
+    }
+
+    /**
+     * Response envelope shape: `full` (meta + data) or `none` (data + the
+     * freshness fields only).
+     *
+     * The data-only shape exists because a consumer that parses the top level as
+     * an array cannot read `{meta, data}` at all: it sees an object where it
+     * expected a list and either errors or yields zero rows. `envelope=none`
+     * answers that case without breaking every existing client, which keeps the
+     * default untouched.
+     *
+     * `generated`, `count` and `total` are deliberately retained in the flat
+     * shape: a bare array would drop the only signal a client has for judging how
+     * fresh the payload is.
+     *
+     * @return string|null null when the value is present but not recognised, so
+     *                     the caller can answer 400 instead of guessing
+     */
+    public function envelope($allowed = array('full', 'none'))
+    {
+        $value = strtolower(trim((string) $this->param('envelope', '')));
+        if ($value === '') {
+            return $allowed[0];
+        }
+        $aliases = array(
+            'data'      => 'none',
+            'data-only' => 'none',
+            'dataonly'  => 'none',
+            'flat'      => 'none',
+            'bare'      => 'none',
+            'default'   => 'full',
+            'normal'    => 'full',
+        );
+        if (isset($aliases[$value])) {
+            $value = $aliases[$value];
+        }
+        if (!in_array($value, $allowed, true)) {
+            return null;
+        }
+
+        return $value;
     }
 
     public function acceptsGzip()

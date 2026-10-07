@@ -784,4 +784,59 @@ T::truthy(
 );
 T::same('', (string) Config::get('service.contact_password', ''), 'no credential-shaped field exists in the public service block');
 
+// --- data-only envelope: request parsing --------------------------------
+// `?envelope=none` exists so a consumer that parses the top level as an array can
+// read the payload at all -- it sees {meta,data} as an object and yields zero rows.
+// The default stays `full` so no existing client changes behaviour.
+$envCases = array(
+    'none'      => array('none', 'envelope=none selects the data-only shape'),
+    'data'      => array('none', 'alias "data" maps to none'),
+    'data-only' => array('none', 'alias "data-only" maps to none'),
+    'dataonly'  => array('none', 'alias "dataonly" maps to none'),
+    'flat'      => array('none', 'alias "flat" maps to none'),
+    'bare'      => array('none', 'alias "bare" maps to none'),
+    'full'      => array('full', 'envelope=full selects the full shape'),
+    'default'   => array('full', 'alias "default" maps to full'),
+    'normal'    => array('full', 'alias "normal" maps to full'),
+    '  NONE  '  => array('none', 'value is trimmed and case-insensitive'),
+);
+foreach ($envCases as $input => $spec) {
+    $probe = Request::fromParts('/v1/transmitters', array('envelope' => $input));
+    T::same($spec[0], $probe->envelope(array('full', 'none')), $spec[1]);
+}
+$absent = Request::fromParts('/v1/transmitters');
+T::same('full', $absent->envelope(array('full', 'none')), 'an absent envelope defaults to full (backward compatible)');
+$blank = Request::fromParts('/v1/transmitters', array('envelope' => ''));
+T::same('full', $blank->envelope(array('full', 'none')), 'an empty envelope value counts as not specified');
+$bad = Request::fromParts('/v1/transmitters', array('envelope' => 'xml'));
+T::same(null, $bad->envelope(array('full', 'none')), 'an unsupported envelope returns null so the caller can answer 400');
+
+// --- data-only envelope: shape -------------------------------------------
+$baseProbe = new ReflectionClass('SatApi\\Api\\Endpoints\\Base');
+$dataOnly = $baseProbe->getMethod('dataOnlyEnvelope');
+$dataOnly->setAccessible(true);
+$shaped = $dataOnly->invoke(null, array(array('a' => 1), array('a' => 2)), array(
+    'generated' => '2026-10-07T09:00:00Z',
+    'count'     => 999, // deliberately wrong: the payload length must win
+    'total'     => 5110,
+    'service'   => 'AzureOpenAPI for Satellite', // must NOT leak into the flat shape
+));
+T::same(array('data', 'generated', 'count', 'total'), array_keys($shaped), 'data-only shape is data/generated/count/total');
+T::same(2, $shaped['count'], 'data-only count is the payload length, not the caller-supplied meta count');
+T::same(5110, $shaped['total'], 'data-only keeps total when the endpoint knows it');
+T::truthy(!isset($shaped['meta']), 'data-only shape has no meta block');
+T::truthy(!isset($shaped['service']), 'no meta field leaks into the data-only shape');
+$noTotal = $dataOnly->invoke(null, array(array('a' => 1)), array('generated' => '2026-10-07T09:00:00Z', 'count' => 1));
+T::same(array('data', 'generated', 'count'), array_keys($noTotal), 'total is omitted when the endpoint has no such notion');
+T::truthy(
+    (bool) preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/', (string) $noTotal['generated']),
+    'data-only generated stays an RFC 3339 UTC timestamp'
+);
+
+// Envelope must be part of the cache key: a client switching shapes must not be
+// served a 304 for a representation it has never seen.
+$etagFull = \SatApi\Api\Endpoints\Base::etag(array('envelope' => 'full', 'etag' => '"abc"'));
+$etagNone = \SatApi\Api\Endpoints\Base::etag(array('envelope' => 'none', 'etag' => '"abc"'));
+T::truthy($etagFull !== $etagNone, 'different envelopes produce different ETags');
+
 exit(T::summary());

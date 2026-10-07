@@ -169,7 +169,7 @@ final class Catalog extends Base
             'rows'     => $rows,
         ));
 
-        Response::json(self::envelope($rows, $meta), 200, $headers, $deferred);
+        self::respondData($request, $rows, $meta, 200, $headers, $deferred);
     }
 
     /**
