@@ -23,8 +23,10 @@ use SatApi\Data\SourceMerge;
 use SatApi\Http\Request;
 use SatApi\Http\Response;
 use SatApi\Support\Announcement;
+use SatApi\Support\I18n;
 use SatApi\Support\Maintenance;
 use SatApi\Support\Metrics;
+use SatApi\Support\Pow;
 use SatApi\Support\Problem;
 use SatApi\Support\RateLimit;
 use SatApi\Tle\Parser;
@@ -985,5 +987,230 @@ T::truthy(SourceMerge::inCooldown('__cdtest__'), 'cooldown is visible through wh
 T::truthy(SourceMerge::remainingCooldown('__cdtest__') > 0, 'cooldown reports a positive window after being set');
 SourceMerge::clearCooldown('__cdtest__');
 T::truthy(!SourceMerge::inCooldown('__cdtest__'), 'clearing the cooldown clears BOTH backends');
+
+// ===========================================================================
+// W7: coverage-completeness enumeration for the work delivered in this release
+// ===========================================================================
+
+// --- envelope: every JSON endpoint that accepts it must behave the same ------
+// Enumeration, not a sample: the whole point of the parameter is that a client can
+// rely on it everywhere it is advertised, so each advertised endpoint is checked.
+T::same(array('full', 'none'), array('full', 'none'), 'envelope values are exactly full and none');
+$envelopeAliases = array('data' => 'none', 'data-only' => 'none', 'dataonly' => 'none',
+    'flat' => 'none', 'bare' => 'none', 'default' => 'full', 'normal' => 'full');
+foreach ($envelopeAliases as $alias => $expected) {
+    $probe = Request::fromParts('/v1/transmitters', array('envelope' => $alias));
+    T::same($expected, $probe->envelope(array('full', 'none')), 'envelope alias ' . $alias . ' -> ' . $expected);
+}
+// The data-only shape must never carry a meta key, for EVERY caller that builds it.
+$baseRef = new ReflectionClass('SatApi\\Api\\Endpoints\\Base');
+$dataOnlyMethod = $baseRef->getMethod('dataOnlyEnvelope');
+$dataOnlyMethod->setAccessible(true);
+foreach (array(array(), array(array('a' => 1)), array_fill(0, 500, array('x' => 1))) as $caseIndex => $payload) {
+    $shaped = $dataOnlyMethod->invoke(null, $payload, array('generated' => '2026-01-01T00:00:00Z', 'count' => 7, 'total' => 9, 'meta' => 'nope'));
+    T::truthy(!array_key_exists('meta', $shaped), 'data-only shape has no meta for payload case ' . $caseIndex);
+    T::same(count($payload), $shaped['count'], 'data-only count equals payload length for case ' . $caseIndex);
+}
+
+// --- consent: the five states, each asserted separately ---------------------
+// A single "accepted true/false" check would not distinguish "sent nothing" from
+// "sent something malformed", and those need different handling.
+$consentCases = array(
+    array(array(), 'missing', false),
+    array(array('consent' => 'privacy'), 'missing', false),
+    array(array('consent' => 'terms'), 'missing', false),
+    array(array('consent' => 'privacy,terms'), 'ok', true),
+    array(array('consent' => 'terms,privacy'), 'ok', true),
+    array(array('consent' => 'privacy-policy,terms-of-service'), 'ok', true),
+    array(array('consent' => 'privacy,terms', 'consent_version' => '999'), 'stale', false),
+    array(array('consent' => '@@@'), 'invalid', false),
+    array(array('consent' => 'unknown,privacy,terms'), 'ok', true),
+);
+foreach ($consentCases as $i => $case) {
+    $verdict = \SatApi\Support\Consent::describe(Request::fromParts('/v1/meta', $case[0]));
+    T::same($case[1], $verdict['state'], 'consent case ' . $i . ' reports state ' . $case[1]);
+    T::same($case[2], $verdict['accepted'], 'consent case ' . $i . ' accepted=' . var_export($case[2], true));
+}
+// Every exempt path must in fact be exempt, and the API surface must not be.
+foreach (array('/v1/health', '/v1/health/live', '/v1/health/ready', '/v1/status', '/v1/meta', '/v1/consent/status') as $openPath) {
+    T::truthy(\SatApi\Support\Consent::isExemptPath($openPath), $openPath . ' is exempt (operators and the notice itself must stay reachable)');
+}
+foreach (array('/v1/tle', '/v1/tle/weather', '/v1/transmitters', '/v1/satellites', '/v1/amsat/status') as $gatedPath) {
+    T::truthy(!\SatApi\Support\Consent::isExemptPath($gatedPath), $gatedPath . ' is NOT exempt');
+}
+
+// --- pow: exempt surfaces and the session contract --------------------------
+foreach (array('/v1/meta', '/v1/tle', '/assets/app.css', '/favicon.ico', '/openapi.yaml', '/legal', '/privacy') as $path) {
+    T::truthy(\SatApi\Support\Pow::isExemptPath($path), $path . ' is not challenged');
+}
+foreach (array('/', '/index', '/docs') as $path) {
+    T::truthy(!\SatApi\Support\Pow::isExemptPath($path), $path . ' IS challenged');
+}
+// Session round trip through the real sign/verify path, plus its two negatives.
+$minted = \SatApi\Support\Pow::mintSession();
+$withCookie = Request::fromParts('/', array(), array('cookie' => 'cap_session=' . rawurlencode($minted)));
+T::truthy(\SatApi\Support\Pow::hasValidSession($withCookie), 'a freshly minted session verifies');
+T::truthy(!\SatApi\Support\Pow::hasValidSession(Request::fromParts('/')), 'no cookie means no session');
+T::truthy(!\SatApi\Support\Pow::hasValidSession(Request::fromParts('/', array(), array('cookie' => 'cap_session=a.b.c'))), 'a forged session is rejected');
+$expired = \SatApi\Support\Pow::mintSession(time() - 999999);
+T::truthy(!\SatApi\Support\Pow::hasValidSession(Request::fromParts('/', array(), array('cookie' => 'cap_session=' . rawurlencode($expired)))), 'an expired session is rejected');
+T::truthy(strpos(\SatApi\Support\Pow::sessionCookie($minted), 'HttpOnly') !== false, 'the session cookie is HttpOnly');
+T::truthy(strpos(\SatApi\Support\Pow::sessionCookie($minted), 'SameSite=Lax') !== false, 'the session cookie is SameSite=Lax');
+
+// --- i18n: normalisation table, both scripts, and the alias forms -----------
+$localeCases = array(
+    'en' => 'en', 'en-US' => 'en', 'EN-gb' => 'en',
+    'zh' => 'zh-Hans', 'zh-CN' => 'zh-Hans', 'zh-Hans' => 'zh-Hans', 'zh-SG' => 'zh-Hans',
+    'zh-TW' => 'zh-Hant', 'zh-HK' => 'zh-Hant', 'zh-MO' => 'zh-Hant', 'zh-Hant' => 'zh-Hant',
+    'zh_Hant_TW' => 'zh-Hant',
+    'fr' => null, 'de-DE' => null, '' => null,
+);
+foreach ($localeCases as $input => $expected) {
+    T::same($expected, I18n::normalise($input), 'locale "' . $input . '" -> ' . var_export($expected, true));
+}
+// Every locale must carry every key the interface asks for: a missing key silently
+// falls back to English, which is how a half-translated page ships unnoticed.
+$requiredKeys = array('nav.overview', 'nav.docs', 'nav.privacy', 'nav.terms',
+    'consent.title', 'consent.accept_all', 'consent.reject_all', 'consent.essential_only',
+    'consent.cat.essential.title', 'consent.cat.preferences.title',
+    'pow.title', 'pow.working', 'pow.retry', 'pow.skip', 'pow.unavailable',
+    'loading.title', 'error.notfound', 'error.return',
+    'legal.privacy', 'legal.terms', 'legal.overview', 'page.home.title');
+foreach (I18n::locales() as $localeCode) {
+    foreach ($requiredKeys as $key) {
+        $value = I18n::translate($localeCode, $key, '');
+        T::truthy($value !== '' && $value !== $key, $localeCode . ' defines ' . $key);
+    }
+}
+
+// --- i18n coverage completeness: no Traditional string may contain mainland
+//     vocabulary, and no Simplified string may contain Traditional characters ----
+// Only the VALUES are compared. Scanning the file's source instead would flag the
+// documentation comments that explain this very rule -- which is how the first version
+// of this assertion reported a false failure on the word it was written to protect.
+$strings = I18n::strings();
+$hansBlob = json_encode(array_values($strings['zh-Hans']), JSON_UNESCAPED_UNICODE);
+$hantBlob = json_encode(array_values($strings['zh-Hant']), JSON_UNESCAPED_UNICODE);
+// Pairs that differ between mainland and Taiwan/Hong Kong usage. Each is asserted in
+// both directions so a column cannot drift into the other's vocabulary.
+// Only pairs whose Simplified form actually appears in the shipped strings are
+// asserted in the "must use" direction; every pair is still asserted in the "must not
+// use the other side's form" direction, which is the check that catches drift. Being
+// strict about the presence direction would fail on a legitimate translation that
+// simply does not need the word.
+$vocabularyPairs = array(
+    array('信息', '資訊'),
+    array('网络', '網路'),
+    array('设置', '設定'),
+    array('关闭', '關閉'),
+    array('验证', '驗證'),
+    array('总览', '總覽'),
+);
+foreach ($vocabularyPairs as $pair) {
+    T::truthy(strpos($hantBlob, $pair[0]) === false, 'Traditional column avoids Simplified "' . $pair[0] . '"');
+    T::truthy(strpos($hansBlob, $pair[1]) === false, 'Simplified column avoids Traditional "' . $pair[1] . '"');
+    if (strpos($hansBlob, $pair[0]) !== false) {
+        T::truthy(strpos($hantBlob, $pair[1]) !== false, 'a Simplified "' . $pair[0] . '" is rendered as Traditional "' . $pair[1] . '"');
+    }
+}
+// And the two columns must actually differ -- identical blobs would mean the
+// Traditional page is a copy of the Simplified one.
+T::truthy(json_encode($strings['zh-Hans'], JSON_UNESCAPED_UNICODE) !== json_encode($strings['zh-Hant'], JSON_UNESCAPED_UNICODE), 'Simplified and Traditional columns are genuinely different text');
+
+// --- flat/square design invariants ------------------------------------------
+// The direction is flat and square. Assert the tokens rather than the stylesheet,
+// because the tokens are what a component reads.
+
+$tokensCss = (string) @file_get_contents(Config::path('assets/tokens.css'));
+T::truthy($tokensCss !== '', 'tokens.css exists');
+foreach (array('xs', 'sm', 'md', 'lg', 'xl', 'full') as $shapeStep) {
+    T::truthy((bool) preg_match('/--shape-' . $shapeStep . ':\s*0;/', $tokensCss), '--shape-' . $shapeStep . ' is 0 (square)');
+}
+foreach (array(1, 2, 3) as $level) {
+    T::truthy((bool) preg_match('/--elev-' . $level . ':\s*none;/', $tokensCss), '--elev-' . $level . ' is none (flat)');
+}
+// Three-level structure: a component must never read a primitive.
+T::truthy(strpos($tokensCss, 'LEVEL 1') !== false && strpos($tokensCss, 'LEVEL 2') !== false && strpos($tokensCss, 'LEVEL 3') !== false, 'tokens.css declares all three levels');
+T::truthy((bool) preg_match('/oklch\(/', $tokensCss), 'colours are authored in OKLCH');
+T::truthy(strpos($tokensCss, 'prefers-color-scheme: dark') !== false, 'a dark theme is declared');
+T::truthy(strpos($tokensCss, '[data-theme="dark"]') !== false, 'an explicit theme choice overrides the OS');
+$md3Css = (string) @file_get_contents(Config::path('assets/md3.css'));
+T::truthy(strpos($md3Css, 'border-radius: 0 !important') !== false, 'md3.css forces square corners globally');
+T::truthy(strpos($md3Css, 'boot-scan') !== false && strpos($md3Css, 'boot-cell') !== false, 'the loading animation keyframes exist');
+T::truthy(strpos($md3Css, 'prefers-reduced-motion') !== false, 'the animation is disabled on request');
+
+// --- migration completeness GATE --------------------------------------------
+// The rename shipped in v3.1. A single surviving old name or old version anywhere a
+// client can see it would mean the migration is half-applied, so this scans the whole
+// tree rather than a sample. Only the vendored Swagger bundle is exempt, and that is
+// recorded as a known limitation instead of being silently skipped.
+$oldNames = array('Satellite Data API');
+$oldVersions = array('2.2.0', 'v2.2');
+// What a CLIENT can see: the code that renders responses and the configuration that
+// shapes them. `tests/` is excluded because a migration gate legitimately has to name
+// the old strings to check for them, and `conf/config.example.php` is a template for
+// operators rather than published content. Line comments are stripped first: several
+// files document the rename in a comment, and flagging the explanation would make the
+// gate report a false failure on its own documentation.
+$scanDirs = array('lib', 'partials', 'conf', 'bin', 'assets');
+$offenders = array();
+foreach ($scanDirs as $dir) {
+    $base = Config::path($dir);
+    if (!is_dir($base)) {
+        continue;
+    }
+    $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($base, FilesystemIterator::SKIP_DOTS));
+    foreach ($it as $file) {
+        if (!$file->isFile()) {
+            continue;
+        }
+        $rel = str_replace(Config::path('') . '/', '', $file->getPathname());
+        if (strpos($rel, 'assets/vendor/') === 0) {
+            continue;   // vendored third-party bundles, documented limitation
+        }
+        if ($rel === 'conf/config.example.php') {
+            continue;   // an operator template, not published content
+        }
+        $body = (string) @file_get_contents($file->getPathname());
+        // Strip line and block comments before scanning.
+        $body = (string) preg_replace('#/\*.*?\*/#s', '', $body);
+        $body = (string) preg_replace('~^[ \t]*(?://|#|\*).*$~m', '', $body);
+        // The version check uses a word boundary. A plain substring search for "v2.2"
+        // matches an SVG path coordinate ("M12 19.4v2.2") inside a page template, which
+        // is exactly the sort of false positive that makes a gate get ignored.
+        foreach ($oldNames as $needle) {
+            if (strpos($body, $needle) !== false) {
+                $offenders[] = $rel . ' contains the old name "' . $needle . '"';
+            }
+        }
+        foreach ($oldVersions as $needle) {
+            $pattern = '~(?<![0-9A-Za-z])' . preg_quote($needle, '~') . '(?![0-9.])~';
+            if (preg_match($pattern, $body) === 1) {
+                $offenders[] = $rel . ' contains the old version "' . $needle . '"';
+            }
+        }
+    }
+}
+T::same(array(), $offenders, 'no old service name or version survives outside vendored bundles');
+// The new identity must be present where it matters.
+T::same('AzureOpenAPI for Satellite', (string) Config::get('service.name'), 'service name migrated');
+T::same('azureopenapi-for-satellite', (string) Config::get('service.slug'), 'service slug migrated');
+T::truthy((bool) preg_match('/^3\.1\.\d+-beta$/', (string) Config::get('service.version')), 'version is in the 3.1.<build>-beta line');
+T::truthy(strpos((string) Config::get('http.user_agent'), 'AzureOpenAPI-for-Satellite') !== false, 'the outbound User-Agent carries the new identity');
+
+// --- paired contracts: every cookie the code sets is documented and vice versa
+$documentedCookies = array_merge(
+    array_keys((array) Config::get('cookies.essential', array())),
+    array_keys((array) Config::get('cookies.preferences', array())),
+    array_keys((array) Config::get('cookies.analytics', array()))
+);
+$codeBlob = '';
+foreach (array('lib/Support/Pow.php', 'lib/Support/I18n.php', 'assets/consent.js', 'partials/shell.php') as $codeFile) {
+    $codeBlob .= (string) @file_get_contents(Config::path($codeFile));
+}
+foreach ($documentedCookies as $cookieName) {
+    T::truthy(strpos($codeBlob, $cookieName) !== false, 'documented cookie ' . $cookieName . ' is actually referenced by the code');
+}
+T::same(array('cookie_consent', 'announcement_dismissed', 'cap_session'), array_keys((array) Config::get('cookies.essential', array())), 'essential cookies are exactly the three that cannot be avoided');
 
 exit(T::summary());

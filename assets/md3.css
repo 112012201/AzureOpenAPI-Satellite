@@ -1,26 +1,23 @@
 /* ==========================================================================
-   Material Design 3 component layer.
+   Component layer — flat and square.
 
-   This file deliberately does NOT restyle the markup. It maps the role tokens from
-   tokens.css onto the custom-property names the existing layout already consumes
-   (--bg, --fg, --accent, --card, --radius, --shadow, …), and then re-skins the
-   component classes in place.
+   Design rules this file enforces:
+     * no corner radius anywhere (every --shape-* token resolves to 0)
+     * no shadows, no elevation, no glass, no gradients
+     * separation comes from a 1px hairline and a one-step surface change
+     * motion is short and transform-only
 
-   Two reasons for that route rather than rewriting the markup:
+   It maps the role tokens onto the variable names app.css already consumes, so the
+   layout inherits the new palette without being rewritten, and then re-skins the
+   components in place. That keeps the shell — announcement bar, consent dialog,
+   proof-of-work overlay, the three-locale blocks, the legal pages — intact, which is
+   where the behaviour and accessibility live.
 
-     1. the shell — announcement bar, cookie dialog, proof-of-work overlay, the
-        three-locale blocks and the legal pages — is markup that carries behaviour
-        and accessibility. Replacing it to change an appearance is how regressions
-        get introduced for no reader-visible gain;
-     2. the page must keep working with JavaScript blocked and in all three
-        languages, which is a property of the existing structure.
-
-   Load order matters and is set in the document head: tokens.css, then app.css (the
-   layout that consumes the variables), then this file (which re-skins the components
-   and adds the MD3 touches app.css has no opinion about).
+   Load order is set in the document head and is load-bearing:
+   tokens.css -> app.css (layout) -> md3.css (this file).
    ========================================================================== */
 
-/* --- role mapping: point the legacy variable names at MD3 roles ----------- */
+/* --- role mapping: point the legacy variable names at the roles ----------- */
 :root {
   --bg: var(--surface);
   --bg-elev: var(--surface-container-low);
@@ -31,22 +28,20 @@
 
   --accent: var(--primary);
   --accent-ink: var(--primary);
-  --accent-soft: color-mix(in oklab, var(--primary) 12%, transparent);
+  --accent-soft: color-mix(in oklab, var(--primary) 10%, transparent);
   --accent-2: var(--secondary);
   --accent-2-ink: var(--secondary);
 
   --ok-ink: var(--ok);
   --ok-soft: color-mix(in oklab, var(--ok) 14%, transparent);
   --warn-ink: var(--warn);
-  --warn-soft: color-mix(in oklab, var(--warn) 16%, transparent);
+  --warn-soft: color-mix(in oklab, var(--warn) 14%, transparent);
   --bad-ink: var(--bad);
   --bad-soft: color-mix(in oklab, var(--bad) 14%, transparent);
 
-  --radius: var(--shape-lg);
-  --shadow: var(--elev-1);
+  --radius: 0;
+  --shadow: none;
 
-  /* Font stacks gain the CJK families each locale actually needs, in the order a
-     reader of that script expects them. */
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
     "Noto Sans", "Noto Sans SC", "Noto Sans TC", "PingFang SC", "PingFang TC",
     "Microsoft YaHei", "Microsoft JhengHei", sans-serif;
@@ -54,156 +49,114 @@
     "Liberation Mono", "Noto Sans Mono", monospace;
 }
 
-/* --- typography: MD3 roles, applied by element --------------------------- */
+/* --- hard reset of every rounding and shadow the layout may set ---------- */
+/* A single explicit list beats hunting for stray radii: the direction is flat, and a
+   leftover 4px corner is exactly the kind of thing that makes a redesign look
+   unfinished. */
+*, *::before, *::after { border-radius: 0 !important; }
+* { box-shadow: none; }
+.btn, .card, .chip, .consent__panel, .consent__cat, .consent__note,
+.legal__cards li, .legal__notice, .legal__code, .tab, .tabpanel,
+.legal__table, .stat, input, select, textarea, pre, code, .boot__bar,
+.boot__bar > span, .announce, .lang, .lang__btn { box-shadow: none !important; }
+
+/* --- typography --------------------------------------------------------- */
 body {
   font-family: var(--font-sans);
   font-size: var(--t-body);
-  line-height: 1.65;
+  line-height: 1.62;
   background: var(--surface);
   color: var(--on-surface);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-
-h1 {
-  font-size: var(--t-display);
-  font-weight: var(--w-bold);
-  line-height: 1.08;
-  letter-spacing: -0.022em;
-  margin: 0 0 var(--sp-4);
-}
-h2 {
-  font-size: var(--t-headline);
-  font-weight: var(--w-semibold);
-  line-height: 1.18;
-  letter-spacing: -0.014em;
-  margin: var(--sp-12) 0 var(--sp-4);
-}
-h3 {
-  font-size: var(--t-title);
-  font-weight: var(--w-semibold);
-  line-height: 1.25;
-  letter-spacing: -0.008em;
-  margin: var(--sp-6) 0 var(--sp-2);
-}
+h1 { font-size: var(--t-display); font-weight: var(--w-bold); line-height: 1.06; letter-spacing: -0.02em; margin: 0 0 var(--sp-4); }
+h2 { font-size: var(--t-headline); font-weight: var(--w-semibold); line-height: 1.16; letter-spacing: -0.012em; margin: var(--sp-12) 0 var(--sp-4); }
+h3 { font-size: var(--t-title); font-weight: var(--w-semibold); line-height: 1.24; margin: var(--sp-6) 0 var(--sp-2); }
 p { margin: 0 0 var(--sp-4); }
 a { color: var(--primary); text-underline-offset: 3px; }
-a:hover { color: color-mix(in oklab, var(--primary) 80%, var(--on-surface)); }
+a:hover { color: color-mix(in oklab, var(--primary) 78%, var(--on-surface)); }
 code, kbd, pre, samp { font-family: var(--font-mono); font-size: 0.9em; }
 
-/* A "kicker" line above a heading: MD3 uses a label role for this. */
-.eyebrow,
-.kicker {
+.eyebrow, .kicker {
   font-size: var(--t-label);
   font-weight: var(--w-semibold);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--primary);
   margin: 0 0 var(--sp-2);
 }
 
-/* --- buttons: full-round, three emphases, state layers ------------------ */
+/* --- buttons: square, one hairline, no lift ----------------------------- */
 .btn {
-  border-radius: var(--btn-radius);
+  border-radius: 0;
   padding: var(--btn-pad-y) var(--btn-pad-x);
   font-weight: var(--w-medium);
   font-size: var(--t-label);
   letter-spacing: 0.01em;
   border: 1px solid transparent;
   transition: background-color var(--dur-short) var(--ease-standard),
-              box-shadow var(--dur-short) var(--ease-standard),
               border-color var(--dur-short) var(--ease-standard),
-              transform var(--dur-short) var(--ease-standard);
+              color var(--dur-short) var(--ease-standard);
 }
-.btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: none; box-shadow: var(--focus-ring) !important; }
+/* No translate on press: a flat surface that moves reads as a glitch, and the colour
+   change already carries the state. */
+.btn:active { background-color: color-mix(in oklab, var(--primary) 22%, transparent); }
 
-.btn--primary {
-  background: var(--primary);
-  color: var(--on-primary);
-  border-color: var(--primary);
-  box-shadow: var(--elev-0);
-}
-.btn--primary:hover {
-  background: color-mix(in oklab, var(--primary) 88%, var(--on-surface));
-  color: var(--on-primary);
-  box-shadow: var(--elev-1);
-}
-.btn--ghost {
-  background: transparent;
-  color: var(--primary);
-  border-color: var(--outline);
-}
-.btn--ghost:hover {
-  background: color-mix(in oklab, var(--primary) 10%, transparent);
-  border-color: var(--primary);
-  color: var(--primary);
-}
+.btn--primary { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+.btn--primary:hover { background: color-mix(in oklab, var(--primary) 86%, var(--on-surface)); color: var(--on-primary); border-color: transparent; }
+.btn--ghost { background: transparent; color: var(--primary); border-color: var(--outline); }
+.btn--ghost:hover { background: color-mix(in oklab, var(--primary) 12%, transparent); border-color: var(--primary); color: var(--primary); }
 .btn--sm { padding: 6px var(--sp-3); font-size: var(--t-caption); }
 
-/* --- cards: low container, hairline outline, edge highlight ------------- */
-.card,
-.legal__cards li,
-.consent__cat {
+/* --- cards: hairline only ----------------------------------------------- */
+.card, .legal__cards li, .consent__cat {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  border-radius: var(--card-radius);
-  box-shadow: var(--card-shadow);
-  /* The 1px inner highlight is the MD3 "edge" cue that separates a container from
-     the surface behind it without a heavier shadow. */
+  border-radius: 0;
+  box-shadow: none;
   position: relative;
-}
-.card::before,
-.legal__cards li::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--on-surface) 6%, transparent);
-  pointer-events: none;
 }
 .card { padding: var(--card-pad); }
 
-/* Feature / card grids become intrinsically responsive rather than breakpoint-driven:
-   a card wraps when it would be narrower than its min, whatever the viewport. */
-.grid,
-.features__grid,
-.legal__cards {
+.grid, .features__grid, .legal__cards {
   display: grid;
-  gap: var(--sp-4);
+  gap: 1px;                     /* 1px gutters make the grid read as ruled cells */
+  background: var(--outline-variant);
+  border: 1px solid var(--outline-variant);
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
 }
+.grid > *, .features__grid > *, .legal__cards > * { background: var(--surface); border: 0; }
 
-/* --- stat-led macrostructure -------------------------------------------- */
-/* The page opens on live service numbers rather than a slogan: the first screen
-   answers "is this up, and what does it carry" before it explains anything. */
+/* --- stat-led opening --------------------------------------------------- */
 .statled {
   display: grid;
-  gap: var(--sp-4);
+  gap: 1px;
+  background: var(--outline-variant);
+  border: 1px solid var(--outline-variant);
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   margin: var(--sp-6) 0 var(--sp-8);
 }
 .stat {
-  background: var(--surface-container);
-  border: 1px solid var(--outline-variant);
-  border-radius: var(--shape-md);
+  background: var(--surface);
+  border: 0;
+  border-radius: 0;
   padding: var(--sp-4) var(--sp-5);
   min-width: 0;
 }
 .stat__label {
   font-size: var(--t-caption);
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--on-surface-variant);
   margin: 0 0 var(--sp-1);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .stat__value {
   font-size: clamp(1.5rem, 1.1rem + 1.4vw, 2.1rem);
   font-weight: var(--w-bold);
-  line-height: 1.05;
+  line-height: 1.02;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
   margin: 0;
@@ -214,117 +167,146 @@ code, kbd, pre, samp { font-family: var(--font-mono); font-size: 0.9em; }
 .stat--warn .stat__value { color: var(--warn); }
 .stat--bad .stat__value { color: var(--bad); }
 
-/* --- chips -------------------------------------------------------------- */
+/* --- chips: square, hairline ------------------------------------------- */
 .chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border-radius: var(--shape-full);
-  padding: 3px 10px;
-  font-size: var(--t-caption);
-  font-weight: var(--w-medium);
+  display: inline-flex; align-items: center; gap: 6px;
+  border-radius: 0; padding: 2px 8px;
+  font-size: var(--t-caption); font-weight: var(--w-medium);
   border: 1px solid var(--outline);
   background: var(--surface-container);
   color: var(--on-surface-variant);
   white-space: nowrap;
 }
-.chip--ok { border-color: color-mix(in oklab, var(--ok) 40%, transparent); background: var(--ok-container); color: var(--ok); }
-.chip--warn { border-color: color-mix(in oklab, var(--warn) 40%, transparent); background: var(--warn-container); color: var(--warn); }
-.chip--bad { border-color: color-mix(in oklab, var(--bad) 40%, transparent); background: var(--bad-container); color: var(--bad); }
+.chip--ok { border-color: var(--ok); background: var(--ok-container); color: var(--ok); }
+.chip--warn { border-color: var(--warn); background: var(--warn-container); color: var(--warn); }
+.chip--bad { border-color: var(--bad); background: var(--bad-container); color: var(--bad); }
 
-/* --- code surfaces ------------------------------------------------------ */
-pre {
-  background: var(--code-bg);
-  border: 1px solid var(--outline-variant);
-  border-radius: var(--code-radius);
-  padding: var(--sp-4);
-  overflow-x: auto;
-  tab-size: 2;
-}
-:not(pre) > code {
-  background: var(--code-bg);
-  border: 1px solid var(--outline-variant);
-  border-radius: var(--shape-xs);
-  padding: 1px 6px;
-}
-.legal__code { background: var(--code-bg); border-color: var(--outline-variant); }
-
-/* --- tables ------------------------------------------------------------- */
+/* --- code and tables ---------------------------------------------------- */
+pre { background: var(--code-bg); border: 1px solid var(--outline-variant); border-radius: 0; padding: var(--sp-4); overflow-x: auto; tab-size: 2; }
+:not(pre) > code { background: var(--code-bg); border: 1px solid var(--outline-variant); border-radius: 0; padding: 1px 5px; }
+.legal__code { background: var(--code-bg); border-color: var(--outline-variant); border-radius: 0; }
 table { border-collapse: collapse; width: 100%; }
-th, td { border-color: var(--outline-variant); }
-th { background: var(--surface-container); font-weight: var(--w-semibold); font-size: var(--t-label); }
+th, td { border-color: var(--outline-variant); border-style: solid; border-width: 0 0 1px 0; }
+th { background: var(--surface-container); font-weight: var(--w-semibold); font-size: var(--t-label); text-align: left; }
 .legal__table th, .legal__table td { border-color: var(--outline-variant); }
 
-/* --- header: MD3 top app bar -------------------------------------------- */
+/* --- header: solid, hairline underneath, no blur ------------------------ */
 .site-header {
-  background: var(--header-bg);
-  border-bottom: 1px solid var(--header-border);
-  backdrop-filter: saturate(140%) blur(12px);
-  -webkit-backdrop-filter: saturate(140%) blur(12px);
+  background: var(--surface);
+  border-bottom: 1px solid var(--outline-variant);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 .site-header a { color: var(--on-surface-variant); text-decoration: none; }
 .site-header a:hover { color: var(--on-surface); }
+
+/* --- announcement bar: full-bleed block, square ------------------------ */
+.announce { border-bottom: 1px solid var(--outline-variant); border-radius: 0; }
+.announce__icon { border-radius: 0; width: 10px; height: 10px; }
+
+/* --- language switcher: square segmented control ----------------------- */
+.lang { border-radius: 0; padding: 0; gap: 0; background: transparent; border: 1px solid var(--outline-variant); }
+.lang__btn { border-radius: 0; padding: 5px 10px; border-left: 1px solid var(--outline-variant); }
+.lang__btn:first-child { border-left: 0; }
+.lang__btn.is-active { background: var(--primary); color: var(--on-primary); box-shadow: none; }
 
 /* --- forms -------------------------------------------------------------- */
 input, select, textarea {
   background: var(--field-bg);
   border: 1px solid var(--field-border);
-  border-radius: var(--field-radius);
+  border-radius: 0;
   color: var(--on-surface);
   padding: 8px 12px;
   font: inherit;
 }
 input:focus-visible, select:focus-visible, textarea:focus-visible {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 22%, transparent);
+  outline: none; border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 30%, transparent) !important;
 }
 
-/* --- overlay, dialog, notice: lift onto MD3 surfaces -------------------- */
-.consent__panel {
-  background: var(--dialog-bg);
-  border: 1px solid var(--outline-variant);
-  border-radius: var(--dialog-radius);
-  box-shadow: var(--dialog-shadow);
-}
-.consent__note { background: var(--warn-container); color: var(--warn-ink); }
+/* --- dialog / notice / overlay: square, hairline, no dim blur ---------- */
+.consent { background: color-mix(in oklab, var(--p-n-950) 62%, transparent); }
+.consent__panel { background: var(--dialog-bg); border: 1px solid var(--outline); border-radius: 0; box-shadow: none; }
+.consent__note { background: var(--warn-container); color: var(--warn-ink); border-radius: 0; border: 1px solid var(--warn); }
+.legal__notice { background: var(--warn-container); color: var(--warn-ink); border-left: 3px solid var(--warn); border-radius: 0; }
 .boot { background: var(--surface); }
-.announce { border-bottom-color: var(--outline-variant); }
-.legal__notice { background: var(--warn-container); color: var(--warn-ink); border-left-color: var(--warn); }
 
-/* --- loading / boot animation ------------------------------------------- */
-/* Geometric, transform-only, and coupled to real progress: the ring turns, the
-   satellite travels the orbit, and the bar advances on the actual challenge stage.
-   Nothing here animates layout, so it cannot trigger reflow while the page is
+/* --- loading animation -------------------------------------------------- */
+/* Square, geometric, transform-only. Three moving parts, each tied to a real stage of
+   the challenge rather than being decorative:
+     .boot__scan     a 2px rule sweeping the panel while the challenge is fetched
+     .boot__blocks   four cells filling in sequence (indeterminate work)
+     .boot__bar      a definite width driven by setProgress() per stage
+   Nothing animates layout properties, so it cannot force reflow while the page is
    still settling. */
-.boot__mark svg { display: block; }
-.boot__planet { fill: none; stroke: var(--primary); stroke-width: 2.5; opacity: 0.9; }
-.boot__ring ellipse { fill: none; stroke: var(--primary); stroke-width: 1.6; opacity: 0.4; }
-.boot__sat { fill: var(--primary); }
-.boot__ring { transform-origin: 32px 32px; animation: md3-orbit 3.2s linear infinite; }
-.boot__sat  { transform-origin: 32px 32px; animation: md3-orbit 3.2s linear infinite; }
-.boot__bar { background: var(--surface-container-high); height: 4px; border-radius: var(--shape-full); overflow: hidden; }
-.boot__bar > span { background: var(--primary); transition: transform var(--dur-medium) var(--ease-emphasized); }
-.boot__title { font-size: var(--t-subtitle); font-weight: var(--w-semibold); letter-spacing: -0.01em; }
-.boot__hint { color: var(--on-surface-variant); font-size: var(--t-label); }
+.boot {
+  position: fixed; inset: 0; z-index: 70;
+  display: grid; place-content: center; justify-items: center;
+  gap: var(--sp-4); padding: var(--gutter);
+}
+.boot[hidden] { display: none; }
+.boot--done { opacity: 0; transition: opacity var(--dur-long) var(--ease-standard); }
 
-@keyframes md3-orbit {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
+.boot__mark { position: relative; width: 132px; height: 92px; border: 1px solid var(--outline-variant); }
+.boot__mark svg { display: none; }
+
+/* sweeping rule */
+.boot__mark::after {
+  content: ""; position: absolute; left: 0; top: 0; width: 100%; height: 2px;
+  background: var(--primary);
+  animation: boot-scan 1.35s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes boot-scan {
+  0%   { transform: translateY(0); }
+  50%  { transform: translateY(90px); }
+  100% { transform: translateY(0); }
 }
 
-/* A determinate progress ring would be better than a bar for a stage-based flow, but
-   the bar is already wired to the challenge stages; this keeps the visual language
-   consistent with MD3's linear progress indicator instead of adding a second one. */
+/* four-cell indeterminate indicator */
+.boot__blocks {
+  position: absolute; inset: 0;
+  display: grid; place-content: center;
+  grid-template-columns: repeat(4, 12px);
+  gap: 6px;
+}
+.boot__blocks i {
+  display: block; width: 12px; height: 12px;
+  background: var(--outline-variant);
+  animation: boot-cell 1.4s steps(2, end) infinite;
+}
+.boot__blocks i:nth-child(1) { animation-delay: 0ms; }
+.boot__blocks i:nth-child(2) { animation-delay: 140ms; }
+.boot__blocks i:nth-child(3) { animation-delay: 280ms; }
+.boot__blocks i:nth-child(4) { animation-delay: 420ms; }
+@keyframes boot-cell {
+  0%, 49%   { background: var(--primary); }
+  50%, 100% { background: var(--outline-variant); }
+}
 
-/* --- focus visibility everywhere ---------------------------------------- */
-:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--shape-xs); }
+.boot__title { font-size: var(--t-subtitle); font-weight: var(--w-semibold); margin: 0; letter-spacing: -0.01em; }
+.boot__bar { width: min(280px, 72vw); height: 2px; background: var(--outline-variant); border-radius: 0; overflow: hidden; }
+.boot__bar > span {
+  display: block; height: 100%; width: 100%;
+  transform: scaleX(0); transform-origin: left center;
+  background: var(--primary);
+  transition: transform var(--dur-medium) var(--ease-standard);
+}
+.boot__hint { margin: 0; color: var(--on-surface-variant); font-size: var(--t-label); }
+.boot__hint[hidden] { display: none; }
+.boot__error { margin: 0; display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; color: var(--warn-ink); font-size: var(--t-label); }
+.boot__error[hidden] { display: none; }
+[data-cap-host] { margin-top: var(--sp-2); }
 
-/* --- selection and scrollbar, small MD3 touches ------------------------- */
-::selection { background: color-mix(in oklab, var(--primary) 26%, transparent); }
+/* --- focus visibility --------------------------------------------------- */
+:focus-visible { outline: none; box-shadow: var(--focus-ring) !important; }
+
+/* --- misc --------------------------------------------------------------- */
+::selection { background: color-mix(in oklab, var(--primary) 30%, transparent); }
 * { scrollbar-color: var(--outline) transparent; }
+[data-consent-settings] { cursor: pointer; }
+[data-consent-settings][hidden] { display: none; }
 
-/* --- container queries: adapt to the space a block actually has ---------- */
+/* --- container queries -------------------------------------------------- */
 @container (max-width: 480px) {
   .stat { padding: var(--sp-3) var(--sp-4); }
   .stat__value { font-size: 1.35rem; }
@@ -332,8 +314,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 
 /* --- motion: everything decorative stops on request --------------------- */
 @media (prefers-reduced-motion: reduce) {
-  .boot__ring, .boot__sat { animation: none; }
+  .boot__mark::after { animation: none; }
+  .boot__blocks i { animation: none; background: var(--primary); }
   .boot__bar > span { transition: none; }
+  .boot--done { transition: none; }
   .btn { transition: none; }
   *, *::before, *::after {
     animation-duration: 0.001ms !important;

@@ -47,6 +47,10 @@ if (\SatApi\Docs::handles($request)) {
     \SatApi\Docs::render($request);
     exit;
 }
+if (\SatApi\ErrorPage::handles($request)) {
+    \SatApi\ErrorPage::render($request, 404);
+    exit;
+}
 $legalSection = \SatApi\Legal::section($request);
 if ($legalSection !== null) {
     \SatApi\Legal::render($request, $legalSection);

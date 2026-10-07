@@ -175,13 +175,9 @@ $bootBlock = static function ($key, $tag = 'span', $attrs = '') use ($bootTAll, 
   </div>
 </div>
 <?php endif; ?>
-<div class="boot" data-boot hidden data-pow-enabled="<?php echo $powStatus['enabled'] ? '1' : '0'; ?>" data-pow-endpoint="<?php echo htmlspecialchars((string) $powStatus['endpoint'], ENT_QUOTES, 'UTF-8'); ?>" data-pow-sitekey="<?php echo htmlspecialchars((string) $powStatus['site_key'], ENT_QUOTES, 'UTF-8'); ?>">
+<div class="boot" data-boot data-pow-enabled="<?php echo $powStatus['enabled'] ? '1' : '0'; ?>" data-pow-endpoint="<?php echo htmlspecialchars((string) $powStatus['endpoint'], ENT_QUOTES, 'UTF-8'); ?>" data-pow-sitekey="<?php echo htmlspecialchars((string) $powStatus['site_key'], ENT_QUOTES, 'UTF-8'); ?>">
   <div class="boot__mark" aria-hidden="true">
-    <svg viewBox="0 0 64 64" width="72" height="72" focusable="false">
-      <circle class="boot__planet" cx="32" cy="32" r="11"></circle>
-      <g class="boot__ring" transform="rotate(-25 32 32)"><ellipse cx="32" cy="32" rx="24" ry="10"></ellipse></g>
-      <circle class="boot__sat" cx="56" cy="32" r="3.6"></circle>
-    </svg>
+    <span class="boot__blocks"><i></i><i></i><i></i><i></i></span>
   </div>
   <p class="boot__title"><?php echo $bootBlock('loading.title'); ?></p>
   <div class="boot__bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-boot-bar><span data-boot-fill></span></div>

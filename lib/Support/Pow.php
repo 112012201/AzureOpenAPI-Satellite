@@ -63,6 +63,19 @@ final class Pow
         if (strpos($normalised, '/assets/') === 0) {
             return true;
         }
+        if (strpos($normalised, '/cap/') === 0) {
+            // The challenge's own endpoints. Challenging them would make the gate
+            // unsolvable, which is the one failure mode a gate must not have.
+            return true;
+        }
+        // The legal pages must be readable BEFORE they can be accepted, and they have
+        // been extensionless since v3.1 (`/legal`, `/privacy`, `/terms`). The
+        // configured exempt list names `/legal/privacy.html`, and an exact comparison
+        // therefore missed exactly the pages the gate exists to make readable: a gate
+        // that hides the document you are asked to agree to is a wall, not a gate.
+        if (in_array($normalised, array('/legal', '/privacy', '/terms'), true)) {
+            return true;
+        }
         if (preg_match('#\.[a-z0-9]{2,5}$#i', $normalised)) {
             // A file with an extension (css/js/png/ico/yaml/txt/webmanifest…).
             return true;

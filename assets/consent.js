@@ -183,6 +183,16 @@
     return document.querySelector('[data-boot]');
   }
 
+  // The overlay is shown from the first paint and must stay up long enough to be seen.
+  //
+  // Without a floor it flashed for a few hundred milliseconds and effectively did not
+  // exist: the challenge answers in about a second when the session is already valid,
+  // and when the challenge is switched off the overlay was hidden in the same tick it
+  // was revealed. The animation is the point of the overlay, so it gets a minimum
+  // dwell time instead of racing the network.
+  var BOOT_MIN_MS = 900;
+  var bootShownAt = Date.now();
+
   function setProgress(percent) {
     var bar = document.querySelector('[data-boot-bar]');
     var fill = document.querySelector('[data-boot-fill]');
@@ -198,10 +208,19 @@
   function hideOverlay() {
     var el = overlay();
     if (!el) { return; }
-    el.classList.add('boot--done');
+    var wait = Math.max(0, BOOT_MIN_MS - (Date.now() - bootShownAt));
     window.setTimeout(function () {
-      if (el.parentNode) { el.parentNode.removeChild(el); }
-    }, 320);
+      el.classList.add('boot--done');
+      window.setTimeout(function () {
+        if (el.parentNode) { el.parentNode.removeChild(el); }
+      }, 260);
+    }, wait);
+  }
+
+  function showOverlay() {
+    var el = overlay();
+    if (el) { el.removeAttribute('hidden'); }
+    bootShownAt = Date.now();
   }
 
   function showOverlayError(message) {
@@ -387,15 +406,17 @@
 
   function runPow() {
     var pow = boot.pow || {};
+    // Always reveal the overlay first: the animation is what the visitor sees while the
+    // page settles, whether or not a challenge is running.
+    showOverlay();
+
     if (!pow.enabled) {
-      // Challenge off: the overlay is only a paint guard, so clear it immediately.
+      // No challenge: still let the animation finish its minimum dwell, then clear.
       setProgress(100);
       hideOverlay();
       return;
     }
 
-    var el = overlay();
-    if (el) { el.removeAttribute('hidden'); }
     setProgress(15);
 
     loadCapScript(pow.endpoint)

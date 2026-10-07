@@ -166,7 +166,7 @@ return array(
         'legal.terms'        => '服務條款',
         'legal.updated'      => '最後更新',
         'legal.version'      => '版本',
-        'legal.review_notice' => '本文件是為本服務準備的範本文字，不構成法律意見；正式依賴前請交由法務複核。',
+        'legal.review_notice' => '本檔案是為本服務準備的範本文字，不構成法律意見；正式依賴前請交由法務複核。',
         'legal.overview'     => '總覽',
         'legal.meta.description' => 'AzureOpenAPI for Satellite 服務的隱私權政策與服務條款，提供簡體中文、繁體中文與英文版本。',
 
