@@ -59,6 +59,7 @@ $document = '<!DOCTYPE html>' . "\n"
     . '<title>404 &middot; ' . $esc((string) Config::get('service.name', '')) . '</title>' . "\n"
     . '<link rel="icon" href="/favicon.ico" sizes="16x16 32x32">' . "\n"
     . '<link rel="stylesheet" href="/assets/app.css">' . "\n"
+    . \SatApi\Support\CapBootstrap::render() . "\n"
     . '</head>' . "\n"
     . '<body data-page="error" data-locale="' . $esc($code) . '">'
     . $shell

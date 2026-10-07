@@ -57,6 +57,13 @@ Config::set('cache.dir', $tmp . '/cache');
 Config::set('maintenance.dir', $tmp);
 Config::set('metrics.file', $tmp . '/metrics.json');
 Config::set('logs.dir', $tmp);
+// External gates off. The consent gate (451) and the proof-of-work challenge are
+// DEPLOYMENT settings: this deployment has both on. Leaving them on in tests means the
+// suite result would depend on conf/config.php, and an unrelated change to that file
+// would turn into a pile of failures here. The gates themselves are asserted directly
+// (see the consent and pow sections) rather than by driving every request through them.
+Config::set('consent.required', false);
+Config::set('pow.enabled', false);
 \SatApi\Logger::init($tmp, 'request.log', 'error');
 
 // --config=path.to.key=value  (test seam for tuning compression, rate limits…)

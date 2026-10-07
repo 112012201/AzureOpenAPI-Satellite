@@ -170,6 +170,7 @@ final class HomePage
             // throw in private mode.
             '<script>(function(){try{var c=window.localStorage.getItem("satapi-theme");'
                 . 'if(c==="light"||c==="dark"){document.documentElement.setAttribute("data-theme",c);}}catch(e){}}());</script>',
+            \SatApi\Support\CapBootstrap::render(),
             '</head>',
         );
 

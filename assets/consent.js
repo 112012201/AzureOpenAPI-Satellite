@@ -219,13 +219,18 @@
 
   /* ------------------------------------------------------ proof of work */
 
+  /* The widget resolves its own challenge and solves it; we only load it, wait for
+     `solve`, and hand the token to our own endpoint to mint a session cookie.
+     Asset overrides (window.CAP_CUSTOM_*) are set inline in the document head by
+     lib/Support/CapBootstrap.php, BEFORE this file runs, so the widget never reaches
+     for a third-party CDN. */
   function loadCapScript(endpoint) {
     return new Promise(function (resolve, reject) {
       var existing = document.querySelector('script[data-cap]');
       if (existing) {
         if (existing.getAttribute('data-loaded') === '1') { resolve(); return; }
         existing.addEventListener('load', function () { resolve(); });
-        existing.addEventListener('error', function () { reject(new Error('cap script failed')); });
+        existing.addEventListener('error', function () { reject(new Error('widget failed to load')); });
         return;
       }
       var script = document.createElement('script');
@@ -236,7 +241,7 @@
         script.setAttribute('data-loaded', '1');
         resolve();
       });
-      script.addEventListener('error', function () { reject(new Error('cap script failed')); });
+      script.addEventListener('error', function () { reject(new Error('widget failed to load')); });
       document.head.appendChild(script);
     });
   }
@@ -247,12 +252,15 @@
       if (!host) {
         host = document.createElement('div');
         host.setAttribute('data-cap-host', '1');
-        var panel = document.querySelector('.boot__bar');
-        if (panel && panel.parentNode) { panel.parentNode.insertBefore(host, panel.nextSibling); }
+        var bar = document.querySelector('.boot__bar');
+        if (bar && bar.parentNode) { bar.parentNode.insertBefore(host, bar.nextSibling); }
         else if (document.body) { document.body.appendChild(host); }
       }
+
       var widget = document.createElement('cap-widget');
+      // The widget appends "/challenge" and "/<sitekey>/redeem" to this value.
       widget.setAttribute('data-cap-api-endpoint', endpoint + '/');
+      // The page does not post a form; the token is read from the solve event.
       widget.setAttribute('data-cap-hidden-field-name', 'cap-token');
       if (siteKey) { widget.setAttribute('data-cap-site-key', siteKey); }
       host.appendChild(widget);
@@ -261,31 +269,32 @@
       var timer = window.setTimeout(function () {
         if (settled) { return; }
         settled = true;
-        reject(new Error('cap timeout'));
-      }, 15000);
+        reject(new Error('challenge timed out'));
+      }, 20000);
 
       widget.addEventListener('solve', function (event) {
         if (settled) { return; }
         settled = true;
         window.clearTimeout(timer);
         var token = '';
-        if (event.detail) {
-          token = event.detail.token || (event.detail[0] && event.detail[0].token) || '';
-        }
+        var detail = event && event.detail;
+        if (typeof detail === 'string') { token = detail; }
+        else if (detail) { token = detail.token || (detail[0] && detail[0].token) || ''; }
+        if (!token) { reject(new Error('challenge returned no token')); return; }
         resolve(token);
       });
       widget.addEventListener('error', function () {
         if (settled) { return; }
         settled = true;
         window.clearTimeout(timer);
-        reject(new Error('cap error'));
+        reject(new Error('challenge failed'));
       });
     });
   }
 
   function tokenToBase64Url(token) {
-    // Cap emits a JSON string. The bootstrap is also called directly in the
-    // self-test, where the value may already be a plain string.
+    // Cap emits a JSON string. The self-test also calls this directly, where the value
+    // may already be a plain string.
     var json = typeof token === 'string' ? token : JSON.stringify(token);
     var bytes = new TextEncoder().encode(json);
     var binary = '';
@@ -303,11 +312,8 @@
       request.timeout = 12000;
       request.onreadystatechange = function () {
         if (request.readyState !== 4) { return; }
-        if (request.status >= 200 && request.status < 300) {
-          resolve(request.responseText);
-        } else {
-          reject(new Error('verify-pow HTTP ' + request.status));
-        }
+        if (request.status >= 200 && request.status < 300) { resolve(request.responseText); }
+        else { reject(new Error('verify-pow HTTP ' + request.status)); }
       };
       request.ontimeout = function () { reject(new Error('verify-pow timeout')); };
       request.onerror = function () { reject(new Error('verify-pow network error')); };
@@ -318,7 +324,7 @@
   function runPow() {
     var pow = boot.pow || {};
     if (!pow.enabled) {
-      // Nothing to do: the challenge is off, so the overlay is only a paint guard.
+      // Challenge off: the overlay is only a paint guard, so clear it immediately.
       setProgress(100);
       hideOverlay();
       return;
@@ -327,7 +333,6 @@
     var el = overlay();
     if (el) { el.removeAttribute('hidden'); }
     setProgress(15);
-    setHint((window.__SATAPI_I18N__ && window.__SATAPI_I18N__['pow.working']) || '');
 
     loadCapScript(pow.endpoint)
       .then(function () {
@@ -340,12 +345,14 @@
       })
       .then(function () {
         setProgress(100);
+        if (document.body) { document.body.classList.add('is-verified'); }
         hideOverlay();
       })
       .catch(function (error) {
-        // Fail open. Cap being unreachable must degrade the protection, not lock
-        // the visitor out of a page whose content the server already sent.
-        showOverlayError('pow unavailable: ' + (error && error.message ? error.message : 'error'));
+        // Fail open. Cap being unreachable must degrade the protection, not lock the
+        // visitor out of a page whose content the server already sent.
+        var message = (document.querySelector('[data-boot-fail]') || {}).textContent || 'unavailable';
+        showOverlayError(message + ' (' + (error && error.message ? error.message : 'error') + ')');
         window.setTimeout(hideOverlay, 2500);
       });
   }

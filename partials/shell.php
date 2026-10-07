@@ -187,6 +187,7 @@ $bootBlock = static function ($key, $tag = 'span', $attrs = '') use ($bootTAll, 
   <div class="boot__bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-boot-bar><span data-boot-fill></span></div>
   <p class="boot__hint" data-boot-hint><?php echo $bootBlock('pow.working'); ?></p>
   <p class="boot__error" data-boot-error hidden>
+    <span data-boot-fail hidden><?php echo $bootBlock('pow.unavailable'); ?></span>
     <?php echo $bootBlock('pow.failed'); ?>
     <button class="btn btn--sm btn--ghost" type="button" data-boot-retry><?php echo $bootBlock('pow.retry'); ?></button>
     <button class="btn btn--sm btn--ghost" type="button" data-boot-skip><?php echo $bootBlock('pow.skip'); ?></button>

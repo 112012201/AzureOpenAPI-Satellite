@@ -125,6 +125,13 @@ Config::set('maintenance.dir', $tmp);
 Config::set('metrics.file', $tmp . '/metrics.json');
 Config::set('ratelimit.dir', $tmp . '/ratelimit');
 Config::set('logs.dir', $tmp);
+// External gates off. The consent gate (451) and the proof-of-work challenge are
+// DEPLOYMENT settings: this deployment has both on. Leaving them on in tests means the
+// suite result would depend on conf/config.php, and an unrelated change to that file
+// would turn into a pile of failures here. The gates themselves are asserted directly
+// (see the consent and pow sections) rather than by driving every request through them.
+Config::set('consent.required', false);
+Config::set('pow.enabled', false);
 \SatApi\Logger::init($tmp, 'test.log', 'error');
 
 $fixtures = __DIR__ . '/fixtures';
@@ -635,7 +642,26 @@ T::truthy(
 
 // --- consent ----------------------------------------------------------------
 T::truthy(is_array(Config::get('consent')), 'consent settings exist');
-T::same(false, Config::get('consent.required'), 'consent is not enforced by default (existing clients keep working)');
+// The shipped DEFAULT must be lenient: enabling enforcement silently would break every
+// existing integration the moment a legal notice is published. A DEPLOYMENT may switch
+// it on (this one has), so assert the mechanism under both settings and assert the
+// default by reading the shipped configuration rather than whatever config.php says.
+$shippedConsent = (string) file_get_contents(Config::path('lib/Config.php'));
+T::truthy(
+    (bool) preg_match("/'required'\s*=>\s*false/", $shippedConsent) === true,
+    'the shipped default for consent.required is false (lenient)'
+);
+$consentProbe = Request::fromParts('/v1/meta');
+Config::set('consent.required', false);
+T::same(false, (bool) Config::get('consent.required'), 'consent enforcement can be switched off at runtime');
+T::same('missing', \SatApi\Support\Consent::describe($consentProbe)['state'], 'an unacknowledged request is reported as missing, not silently accepted');
+Config::set('consent.required', true);
+T::same(true, (bool) Config::get('consent.required'), 'consent enforcement can be switched on at runtime');
+$enforced = \SatApi\Support\Consent::describe($consentProbe);
+T::truthy(!$enforced['accepted'] && $enforced['required'], 'with enforcement on, an unacknowledged request is both not accepted and required');
+$ack = Request::fromParts('/v1/meta', array('consent' => 'privacy,terms', 'consent_version' => (string) Config::get('consent.version', 1)));
+T::truthy(\SatApi\Support\Consent::describe($ack)['accepted'], 'a correct acknowledgement is accepted while enforcement is on');
+Config::set('consent.required', (bool) Config::get('consent.required', true));
 T::same(1, Config::get('consent.version'), 'consent starts at version 1');
 T::same(array('privacy', 'terms'), Config::get('consent.items'), 'both legal documents are required items');
 T::same('/legal/privacy.html', Config::get('consent.docs.privacy'), 'privacy policy path is declared');
@@ -652,7 +678,20 @@ T::same(512, Config::get('consent.max_param_bytes'), 'consent parameter is lengt
 
 // --- proof of work ----------------------------------------------------------
 T::truthy(is_array(Config::get('pow')), 'proof-of-work settings exist');
-T::same(false, Config::get('pow.enabled'), 'proof of work is off until Cap is provisioned');
+// The shipped default keeps the challenge OFF, so a deployment without Cap still
+// serves every page. This deployment HAS Cap provisioned, so the mechanism is asserted
+// under both settings rather than against whatever conf/config.php says today.
+$shippedPow = (string) file_get_contents(Config::path('lib/Config.php'));
+T::truthy(
+    (bool) preg_match("/'enabled'\s*=>\s*false/", $shippedPow) === true,
+    'the shipped default for pow.enabled is false'
+);
+Config::set('pow.enabled', false);
+T::same(false, Pow::enabled(), 'the challenge is off when the switch is off');
+Config::set('pow.enabled', true);
+$hasKey = (string) Config::get('pow.site_key', '') !== '' || (string) Config::get('pow.secret_key', '') !== '';
+T::same($hasKey, Pow::enabled(), 'the challenge needs BOTH the switch and a configured key');
+Config::set('pow.enabled', (bool) Config::get('pow.enabled', false));
 T::same('cap', Config::get('pow.provider'), 'proof-of-work provider is Cap');
 T::same(true, Config::get('pow.fail_open'), 'an unavailable challenge service degrades instead of locking the site');
 T::truthy(
