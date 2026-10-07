@@ -14,3 +14,7 @@ conf/config.php
 # Packaged artefacts
 *.tar.gz
 *.zip
+
+# Agent session state (handoff checkpoints / plan), not a deliverable
+.ai-memory/
+_plan.md

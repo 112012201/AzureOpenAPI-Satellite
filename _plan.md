@@ -486,8 +486,8 @@ CREATE TABLE IF NOT EXISTS upstream_hourly_stats (
 
 | Wave | 状态 | 证据 |
 |---|---|---|
-| W0 | **完成** | E18~E27：测试 160/160、语法 0 失败、性能基线表、X8/X9/X10/X11/X12 定性。staging 副本建于 `/www/wwwroot/satellite.api.authskin.xyz.staging`（83 文件，差异仅运行时缓存/日志） |
-| W1 | in_progress | — |
+| W0 | **完成** | E18~E27：测试 160/160、语法 0 失败、性能基线表、X8/X9/X10/X11/X12 定性。staging 副本建于 `/www/wwwroot/satellite.api.authskin.xyz.staging` |
+| W1 | **完成** | 见 §10 Wave 1 交付证据。单元断言 160 → **270**，全绿；验收套件 0 失败；22 路径 × 4 安全头均恰好 1 份；php82 write delta = 0 |
 | W2 | pending | — |
 | W3 | pending | — |
 | W4 | pending | — |
@@ -495,6 +495,77 @@ CREATE TABLE IF NOT EXISTS upstream_hourly_stats (
 | W6 | pending | — |
 | W7 | pending | — |
 | W8 | pending | — |
+
+---
+
+## 10. Wave 1 交付证据（已完成，线上生效）
+
+### 10.1 关闭的缺陷
+
+| ID | 缺陷 | 修复 | 验证证据 |
+|---|---|---|---|
+| X1 | `/` 返回 404 | 伪静态新增 `location = / { try_files /index.html =404; }` | `/` → 200，body 35812B，含 `hero__grid`/`id="overview"`，**静态直出 t=1.3ms** |
+| X2 | 文件缓存层不可写 | `chown -R www:www data` + `warmup.sh` 末尾补 `chown` | `/v1/health` → `"cache_dir_writable":true` |
+| X3 | 安全头重复 3 份且值冲突 | 三次隔离实验定位 3 个来源后归口：应用独占 4 头，nginx 各静态 location 自带，vhost 重复 3 行注释 | **22 条路径 × 4 头全部恰好 1 份**；permissions-policy 全站同值 |
+| X4 | `favicon.ico` 缺失 | 新增 `favicon.ico`(16+32 PNG-in-ICO)、`apple-touch-icon.png`(180)、`icon-192/512.png`(maskable)、manifest 补全、robots 放行、三处页面挂载 | 全部 200；`Content-Type: image/x-icon`；manifest 含 `maskable`/`id` |
+| X5 | 上游 weather/amateur 高频失败 | 登记为上游可用性问题（本轮未改超时策略，属 W4 范围） | `logs/app.log` 已无新增 `upstream_failed`（07:00 预热成功） |
+| X6 | PHP 模块冲突告警 | 登记为服务器级配置项（`swow` vs `swoole`、`mbstring` 重复）；**未擅自改服务器 php.ini**，见 §11 待办 | `php82 -v` 仍有告警（低危，不影响本站） |
+| X7 | `.user.ini` 缺尾换行 | **阻塞**：该文件被宝塔「文件防篡改」设为 `immutable`，`cp` 静默失败。已用 sha 校验捕获并回滚；处理方案见 §11 | 文件保持 59B 原样（未被破坏） |
+| **X8** | `docs.html`/`openapi.yaml` 缺失全部安全头 | 各 location 显式补齐 4 头 + 新增静态兜底 location | `/docs.html` `/openapi.yaml` `/oauth2-redirect.*` `/swagger-ui-*` 均 1/1/1/1 |
+| X11 | robots/manifest 未列图标 | `robots.txt` 补 8 条 Allow；manifest 补 3 个图标与 `id` | 见上 |
+| X12 | README 宣称 163 条断言，实为 160 | 断言改为 270 条并修正版本断言口径 | `assertions: 270 passed: 270 failed: 0` |
+| **X13** | **10 个 `*.php` 兼容外壳自 v2.2 起全部 500**（含 `.php` 外壳从未可用） | ① `Router::dispatch` 传 `{route,params}` 信封给 `run()` 导致 `$route['handler']` 未定义 → 改为取 `$match['route']`/`$match['params']`；② 新增 `shellRoute()` 从请求路径恢复路由 id | 9 个外壳全部 200（`satnogs_satellites_proxy.php` 503 = 真实维护窗口），带 `Deprecation` + `Link` 头 |
+| **X14** | **`tle_weather.php` 等 5 个别名返回 meta 文档而非 TLE** | `legacyRoute()` 用 legacy 正则去匹配已注册路由失败 → 静默回退 `System::meta`。新增「等价 v1 参数化路由」回退 + `legacy_alias_without_route` 告警 | `tle_weather.php` → `DMSP 5D-3 F16` TLE；与 `/v1/tle/weather` 状态一致 |
+| **X15** | **API 实际运行在 PHP 8.2（vhost 选 84）** | 伪静态删掉硬编码 `php-cgi-82.sock`，改 `rewrite ^ /index.php last;` | 50 次 `/v1/meta`：**php82 write delta = 0**，php84 = 163840 |
+
+### 10.2 性能回归（同一台机器，改后 15 次采样 vs W0 基线 20 次）
+
+| 端点 | W0 p50 | W1 p50 | 结论 |
+|---|---|---|---|
+| `/` | 无（404） | **0.0013s** | 从不可用 → 静态直出 |
+| `/v1/meta` | 0.0644 | 0.0355 | 改善（走 php84 + opcache 热态） |
+| `/v1/tle/weather` | 0.0622 | 0.0354 | 改善 |
+| `/v1/health` | 0.1354 | 0.1103 | 改善 |
+| `/v1/status` | 0.1432 | 0.1082 | 改善 |
+
+> B4 门禁：有基线、有对比，未声称"无基线提升"。
+
+### 10.3 新增/修改文件（本地 git `4bf89b7`）
+
+20 个文件变更（+1333/−54），新增：`favicon.ico`、`apple-touch-icon.png`、`icon-192.png`、`icon-512.png`、`bin/build-favicon.js`、`bin/build-icons.js`、`bin/README.md`、`_plan.md`。
+
+### 10.4 本轮踩到的**方法论错误**（已内化，见 §12）
+
+1. 判定 HTTP 归属的 I/O 计数用了 `join` + `pgrep`，**pgrep 顺序不稳定** → 输出 `82=1313050543`、php84 为负的荒谬值。
+2. PowerShell `Get-Content -Raw` 按 GBK 解码 UTF-8，导致我"以为"文件乱码 → 实际无损（U+FFFD 计数为 0）。
+3. `ssh ... "cmd"` 的 stdout 被服务器 PHP shim 的 stderr 告警污染，我用"第一行"当 hash → 误判并回滚了一次正确上传。
+4. 多进程管道到 ssh stdin 会吞引号 → 中文与引号被破坏，改用 base64 落盘再执行。
+
+---
+
+## 11. 待办与阻塞（Wave 2+ 与需你决策项）
+
+| # | 项目 | 状态 | 说明 |
+|---|---|---|---|
+| B1 | `.user.ini` 尾换行 | **阻塞** | 文件被 `/www/server/tamper`（`tampercore.ko`，宝塔文件防篡改）设为 immutable，`cp` **静默失败**。修复需 `chattr -i` → 写入 → 恢复属性。**这是服务器级安全策略，需你确认**（或由你在面板临时关闭防篡改）。低危：不改也能正常运行 |
+| B2 | `swow` vs `swoole` 模块冲突 | 待办（服务器级） | php82 的 `php.ini` L2002/L2009 同时启用两者。注释其中一个可消除 `php -v` 与预热日志噪声。**会影响其他站点，需你确认** |
+| B3 | `mbstring` 重复加载 | 待办（服务器级） | php82/php84 的 `php.ini` 已静态加载又有一行 `extension=...mbstring.so`。同上，需你确认 |
+| B4 | 上游 weather/amateur 失败率 | 待办（W4） | `logs/warmup.log` 显示两源各 13.2s 超时。W4 计划调 `connect_timeout` 8→5s、`timeout` 20→12s、`retries` 2→3（仅幂等 GET） |
+| B5 | MySQL `satapi` 用户 DDL | 已验证可行 | `GRANT ALL PRIVILEGES ON satapi.*`，W2 可直接 `CREATE TABLE` |
+| B6 | `redis maxmemory=0` + `noeviction` | 待办（登记） | DB9 统计键全部带 48h TTL + 桶数有界，故本站风险低；**不建议擅改服务器 redis.conf**（会影响其他站点） |
+| B7 | README「错误一律 problem+json」与实现不一致 | 待办（W5） | `Tle`/`Catalog` 两条文本优先路由族按设计把 400 也渲染为可 grep 的纯文本（`Problem::setTextPreferred`）。W5.2 修 README 措辞 |
+| B8 | 宝塔 vhost `error_page 404 /404.html` 替换应用 problem+json | **已知限制（文档化）** | 未知路径的 404 返回 HTML 错误页；路由命中的错误（400/405/429/503）不受影响。已在 `conf/bt-panel-rewrite.conf` 第 7 节写明绕过方法 |
+| B9 | 宝塔「网站->设置->安全」可能重写 vhost 并恢复重复头 | **已知风险（文档化）** | 已在 vhost 待注释行留 `# [v3.0] single-owner:` 标记；W5.3 DEPLOY.md 写明"若面板重写，需重新注释这 3 行" |
+| B10 | CDN（EdgeOne）头注入 | 登记 | 公网响应有 `eo-cache-status`、`eo-log-uuid` 与 CDN 侧 HSTS；与源站头不冲突（CDN 用不同 max-age 覆盖）。W8 做 CDN 刷新 |
+
+---
+
+## 12. Wave 1 复盘的 4 条判据（供后续 Wave 沿用）
+
+1. **判定方法自身要先被验证**：任何"归属/因果"测量，先证明测量能区分两态；`pgrep` 顺序、`curl` 参数、grep 口径都属于测量装置。
+2. **stderr 不是数据**：跨 SSH 解析远程输出前必须过滤非协议行（本环境每次都打 `mbstring` 告警），否则"第一行"可能是警告。
+3. **多进程管道会改字节**：PowerShell → ssh stdin 一律走 base64 落盘；含中文/引号的脚本绝不直接管道。
+4. **nginx `add_header` 的继承是"整组"语义**：子层一旦出现任何 `add_header`，父层全部丢弃；server 级头对 fastcgi 响应会被应用两次。三条结论均已实测记录在 `conf/bt-panel-rewrite.conf` 第 6 节，避免后人重复踩坑。
 
 ---
 
