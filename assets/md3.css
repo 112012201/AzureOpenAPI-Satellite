@@ -243,26 +243,24 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .boot { background: var(--surface); }
 
 /* --- loading screen -----------------------------------------------------
-   Structure and motion follow the Endfield loading screen, which the operator asked
-   for specifically; the values below are the ones read out of its published
-   stylesheet, so the two agree where it matters:
+   Structure follows the Endfield loading screen (fixed, full-bleed, dark; a blurred
+   backdrop; a centred mark; a hairline track with an oversized percentage readout),
+   with two deliberate departures the operator asked for:
 
-     screen      fixed, full-bleed, dark, z-index above everything
-     backdrop    a full-size image with `filter: blur(8px)`
-     mark        centred, and the only large graphic
-     track       landscape: `left:0; bottom:17.75rem; width:82.4%; height:2.5rem`
-                 portrait:  `left:0; top:0; width:1.25rem; height:100%`
-     readout     an oversized figure beside the track, with its unit smaller
-     exit        the container fades on a delay, and an ::after band wipes across it
-                 with `transform-origin:left; scaleX(0) -> scaleX(1)`
+     ALL VERTICAL   Every movement runs top-to-bottom. The track is a bar down the left
+                    edge of the viewport, the fill grows downward, the entrance rises
+                    from below, the mark's orbit is vertical, and the exit wipe sweeps
+                    down the screen.
+     ALL LINEAR     Every easing is `linear`: no ease, no cubic-bezier, no acceleration.
 
-   Two things are deliberately NOT copied. The accent is the site's cyan rather than
-   Endfield's #fffa00, and the corner radius stays 0, because flat and square is this
-   site's rule and the loader is part of the site. The wipe band and the blurred
-   backdrop carry the resemblance; the palette does not have to.
+   The earlier version switched the track to horizontal in landscape and used eased
+   curves throughout, which is what the reference does; this file no longer does either.
+   Changing that back is a two-line edit, and the `orientation` query below is kept only
+   for sizing -- it no longer changes the axis.
 
-   The figure is the real stage value from setProgress(), so the readout reports work
-   that actually happened rather than animating to a number on a timer.
+   A note on `linear`: with an eased curve a progress bar can appear to accelerate on
+   its own. Linear makes the bar track the reported value exactly, so what the visitor
+   sees is the challenge's actual pace rather than the curve's.
    ------------------------------------------------------------------------ */
 .boot {
   position: fixed;
@@ -282,8 +280,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 }
 .boot[hidden] { display: none; }
 
-/* Blurred full-bleed backdrop, generated rather than an image: it costs no request,
-   cannot 404, and blurs the same way. */
+/* Blurred full-bleed backdrop, generated in CSS: no extra request, nothing to 404. */
 .boot__bg {
   position: absolute;
   inset: -6%;
@@ -295,8 +292,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   transform: scale(1.04);
 }
 
-/* Entrance: the content group settles in, so the screen reads as deliberate rather
-   than as a flash of markup. */
+/* Entrance: rises from below on a linear ramp, so the travel is even for its whole
+   duration instead of decelerating into place. */
 .boot__mark,
 .boot__title,
 .boot__meter,
@@ -304,7 +301,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .boot__error {
   position: relative;
   z-index: 1;
-  animation: boot-rise var(--dur-long) var(--ease-standard) both;
+  animation: boot-rise 420ms linear both;
 }
 .boot__title { animation-delay: 60ms; }
 .boot__meter { animation-delay: 120ms; }
@@ -312,12 +309,11 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .boot__error { animation-delay: 180ms; }
 
 @keyframes boot-rise {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(14px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* The mark: a square frame holding the satellite glyph, drawn in CSS so there is no
-   second asset to keep in sync. */
+/* --- the mark: a square frame whose scanning rule travels vertically ----- */
 .boot__mark {
   width: 96px;
   height: 96px;
@@ -325,6 +321,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   place-items: center;
   border: 1px solid color-mix(in oklab, #fff 22%, transparent);
   margin: 0;
+  overflow: hidden;
 }
 .boot__glyph {
   position: relative;
@@ -332,7 +329,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   width: 26px;
   height: 26px;
   border: 2px solid var(--primary);
-  animation: boot-spin 3.6s linear infinite;
+  /* Vertical orbit: the mark rises and falls inside its frame on a linear ramp, which
+     reads as travel rather than as spin. */
+  animation: boot-orbit 2.4s linear infinite;
 }
 .boot__glyph::after {
   content: "";
@@ -344,24 +343,24 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   background: color-mix(in oklab, var(--primary) 60%, transparent);
   transform: translate(-50%, -50%) rotate(-32deg);
 }
-@keyframes boot-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
+@keyframes boot-orbit {
+  0%   { transform: translateY(-15px); }
+  50%  { transform: translateY(15px); }
+  100% { transform: translateY(-15px); }
 }
-/* The four-cell indicator returns, now inside the mark rather than replacing it. */
+/* The scanning rule, now travelling down the frame instead of across it. */
 .boot__mark::before {
   content: "";
   position: absolute;
   width: 96px;
   height: 2px;
   background: var(--primary);
-  animation: boot-scan 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   opacity: 0.8;
+  animation: boot-scan 1.6s linear infinite;
 }
 @keyframes boot-scan {
   0%   { transform: translateY(-46px); }
-  50%  { transform: translateY(46px); }
-  100% { transform: translateY(-46px); }
+  100% { transform: translateY(46px); }
 }
 
 .boot__title {
@@ -372,15 +371,46 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   color: color-mix(in oklab, #fff 92%, transparent);
 }
 
-/* --- meter: the oversized figure and the hairline track ------------------ */
+/* --- meter: a vertical track on the left edge, readout beside it --------- */
+/* The bar leaves the content column and runs the full height of the viewport down the
+   left edge, the way a loading rail does. The readout sits next to it at mid-height. */
 .boot__meter {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--sp-5);
-  width: min(82.4vw, 1100px);
-  margin-top: var(--sp-2);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  margin: 0;
+  display: block;
 }
+.boot__track {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  /* The unfilled part has to be legible or the rail reads as a smudge against the dark
+     field: at 12% white over near-black the filled and empty halves were nearly the
+     same value, which defeats the point of a progress indicator. */
+  background: color-mix(in oklab, #fff 26%, transparent);
+  overflow: hidden;
+}
+.boot__fill {
+  position: absolute;
+  inset: 0;
+  /* One custom property, written by setProgress(); the fill grows downward. */
+  transform: scaleY(var(--boot-progress, 0));
+  transform-origin: center top;
+  background: linear-gradient(180deg,
+    var(--primary),
+    color-mix(in oklab, var(--primary) 78%, #fff));
+  /* Linear so the bar tracks the reported value exactly rather than easing into it. */
+  transition: transform 240ms linear;
+}
+
 .boot__readout {
+  position: absolute;
+  left: 2.25rem;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   align-items: baseline;
   gap: 2px;
@@ -388,37 +418,17 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   line-height: 0.86;
   color: var(--primary);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .boot__figure {
-  font-size: clamp(2.6rem, 1.2rem + 5vw, 4.375rem);
+  font-size: clamp(2.25rem, 1.1rem + 4.4vw, 4.375rem);
   font-weight: var(--w-bold);
   letter-spacing: -0.03em;
 }
 .boot__pct {
-  font-size: clamp(1.6rem, 0.8rem + 2.4vw, 3.25rem);
+  font-size: clamp(1.35rem, 0.7rem + 2.2vw, 3.25rem);
   font-weight: var(--w-regular);
   opacity: 0.75;
-}
-
-.boot__track {
-  position: relative;
-  flex: 1 1 auto;
-  height: 10px;
-  background: color-mix(in oklab, #fff 12%, transparent);
-  overflow: hidden;
-  margin-bottom: 6px;
-}
-.boot__fill {
-  position: absolute;
-  inset: 0;
-  /* One custom property, set by setProgress(), drives both orientations. */
-  transform: scaleX(var(--boot-progress, 0));
-  transform-origin: left center;
-  background: linear-gradient(90deg,
-    color-mix(in oklab, var(--primary) 55%, transparent),
-    var(--primary) 42%,
-    color-mix(in oklab, var(--primary) 70%, transparent));
-  transition: transform var(--dur-medium) var(--ease-standard);
 }
 
 .boot__hint {
@@ -441,72 +451,37 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .boot__error[hidden] { display: none; }
 [data-cap-host] { position: relative; z-index: 1; }
 
-/* --- exit: fade on a delay, and wipe a band across the screen ------------ */
-/* The band is an ::after on the container, above the content, scaling from the left
-   edge. This is the detail that makes the screen read as Endfield's rather than as a
-   generic spinner, so it is reproduced rather than approximated. */
+/* --- exit: the band wipes DOWN the screen, linearly ---------------------- */
+/* An ::after on the container, above the content, scaling from the top edge. */
 .boot--done {
   opacity: 0;
-  /* Fade begins only after the wipe has crossed. Kept in a variable so the two
-     timings cannot drift apart. */
-  transition: opacity 320ms var(--ease-standard) 560ms;
+  /* The fade waits for the wipe to reach the bottom. Kept in a variable in
+     assets/consent.js (BOOT_EXIT_MS) so the two timings cannot drift apart. */
+  transition: opacity 320ms linear 620ms;
 }
 .boot--done::after {
   content: "";
   position: absolute;
   inset: 0;
   z-index: 2;
-  transform-origin: left center;
-  transform: scaleX(0);
-  background: linear-gradient(90deg,
+  transform-origin: center top;
+  transform: scaleY(0);
+  background: linear-gradient(180deg,
     var(--primary),
     color-mix(in oklab, var(--primary) 70%, #fff));
-  animation: boot-wipe 560ms cubic-bezier(1, 0, 0.7, 1) forwards;
+  animation: boot-wipe 620ms linear forwards;
 }
 @keyframes boot-wipe {
-  0%   { transform: scaleX(0); }
-  to   { transform: scaleX(1); }
+  0%   { transform: scaleY(0); }
+  100% { transform: scaleY(1); }
 }
 
-/* --- portrait: the track becomes a vertical bar on the left edge --------- */
+/* --- sizing only: the axis no longer changes with orientation ------------ */
 @media (orientation: portrait) {
-  .boot__meter {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    flex-direction: column-reverse;
-    align-items: flex-start;
-    gap: 0;
-    margin: 0;
-    background: transparent;
-  }
-  .boot__track {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 5px;
-    height: 100%;
-    flex: none;
-    margin: 0;
-  }
-  .boot__fill {
-    transform: scaleY(var(--boot-progress, 0));
-    transform-origin: center top;
-    background: linear-gradient(180deg,
-      color-mix(in oklab, var(--primary) 55%, transparent),
-      var(--primary) 42%,
-      color-mix(in oklab, var(--primary) 70%, transparent));
-  }
-  /* The readout moves beside the bar instead of inline with it. */
-  .boot__readout {
-    position: absolute;
-    left: 3.125rem;
-    bottom: auto;
-    top: 50%;
-    transform: translateY(-50%);
-  }
+  /* A phone has less horizontal room beside the rail, so the readout sits closer and
+     the figure is capped a step smaller. The bar stays vertical either way. */
+  .boot__readout { left: 1.75rem; }
+  .boot__figure { font-size: clamp(2rem, 1rem + 6vw, 3.25rem); }
 }/* --- focus visibility --------------------------------------------------- */
 :focus-visible { outline: none; box-shadow: var(--focus-ring) !important; }
 
@@ -527,6 +502,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   .boot__mark::before { animation: none; }
   .boot__glyph { animation: none; }
   .boot__fill { transition: none; }
+  /* The wipe is not removed, only collapsed: the screen still has to clear, and an
+     instant clear is the reduced-motion equivalent of the same event. */
   .boot--done { transition: opacity 120ms linear; }
   .boot--done::after { animation-duration: 1ms; }
   .boot__mark, .boot__title, .boot__meter, .boot__hint, .boot__error { animation: none; }

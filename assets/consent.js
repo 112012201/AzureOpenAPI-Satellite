@@ -189,13 +189,14 @@
   // exist: the challenge answers in about a second when the session is already valid,
   // and when the challenge is switched off the overlay was hidden in the same tick it
   // was revealed. The screen is the point of the overlay, so it gets a minimum dwell
-  // instead of racing the network. 1200ms also lets the entrance settle and the wipe
-  // read as a wipe rather than as a flicker.
-  var BOOT_MIN_MS = 1200;
-  // Wipe 560ms, then the fade starts at 560ms and runs 320ms: removing the node at
-  // 940ms would cut the tail, so the removal waits for both to finish. These three
-  // numbers are mirrored in md3.css, and the comment there says so.
-  var BOOT_EXIT_MS = 940;
+  // instead of racing the network. 1400ms also lets the linear entrance settle and the
+  // vertical wipe read as a wipe rather than as a flicker.
+  var BOOT_MIN_MS = 1400;
+  // The exit is a vertical wipe (620ms, linear) and a fade that starts once the band
+  // has reached the bottom (320ms, delayed 620ms). Removal has to wait for both, so it
+  // is the sum plus a small margin. These numbers are mirrored in md3.css under
+  // `.boot--done`, and both comments point at each other so they cannot drift.
+  var BOOT_EXIT_MS = 960;
   var bootShownAt = Date.now();
 
   function setProgress(percent) {

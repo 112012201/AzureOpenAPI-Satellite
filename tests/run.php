@@ -1142,7 +1142,53 @@ T::truthy(strpos($md3Css, 'border-radius: 0 !important') !== false, 'md3.css for
 // the two properties that keep it from being a liability: it does not depend on the
 // challenge script, and it stops on request.
 T::truthy(strpos($md3Css, '@keyframes boot-wipe') !== false, 'the loading screen wipes on exit');
-T::truthy(strpos($md3Css, 'transform-origin: left center') !== false, 'the wipe grows from the left edge');
+// The wipe travels DOWN the screen: top origin, scaleY. The earlier version grew from
+// the left edge on scaleX, and this assertion is the one that would have caught the
+// change silently not taking effect.
+T::truthy(strpos($md3Css, 'transform-origin: center top') !== false, 'the wipe grows downward from the top edge');
+// Match the rule body without assuming how it is laid out: the first version of this
+// pattern required both scaleY values on the same line as the opening brace, which is
+// how it happened to be written at the time and not a property worth asserting.
+$wipeBody = '';
+if (preg_match('/@keyframes\s+boot-wipe\s*\{(.*?)\n\}/s', $md3Css, $wipeMatch)) {
+    $wipeBody = $wipeMatch[1];
+}
+T::truthy($wipeBody !== '', 'the boot-wipe keyframe block is present');
+T::truthy(substr_count($wipeBody, 'scaleY(') >= 2, 'the wipe keyframe scales on the Y axis in both directions');
+T::truthy(strpos($wipeBody, 'scaleX') === false, 'the wipe keyframe has no horizontal scaling');
+// Vertical and linear are the operator's stated requirements, so they are asserted as
+// properties of the stylesheet rather than left to a screenshot to notice.
+$loaderSegment = '';
+if (preg_match('#/\* --- loading screen.*?/\* --- focus visibility#s', $md3Css, $segMatch)) {
+    $loaderSegment = $segMatch[0];
+}
+T::truthy($loaderSegment !== '', 'the loading screen block is present');
+// Strip comments before scanning: the block documents the rule, and the first version of
+// this check flagged the word "cubic-bezier" inside the sentence that forbids it.
+$loaderRules = (string) preg_replace('#/\*.*?\*/#s', '', $loaderSegment);
+T::truthy(strpos($loaderRules, 'scaleX') === false, 'no horizontal scaling remains in the loading screen');
+T::truthy(strpos($loaderRules, 'translateX') === false, 'no horizontal translation remains in the loading screen');
+T::truthy(strpos($loaderRules, 'cubic-bezier') === false, 'no eased curve remains in the loading screen');
+T::truthy(strpos($loaderRules, 'var(--ease') === false, 'no easing variable is used in the loading screen');
+$timings = array();
+if (preg_match_all('#(?:animation|transition)\s*:\s*([^;]+);#', $loaderRules, $timingMatch)) {
+    foreach ($timingMatch[1] as $declaration) {
+        if (stripos($declaration, 'animation-delay') === false) { $timings[] = trim($declaration); }
+    }
+}
+T::truthy(count($timings) >= 5, 'the loading screen declares its timings (found ' . count($timings) . ')');
+foreach ($timings as $declaration) {
+    T::truthy(stripos($declaration, 'linear') !== false, 'timing is linear: ' . $declaration);
+}
+// The vertical rail is not orientation-dependent any more: it is the same axis in both.
+T::truthy((bool) preg_match('#\.boot__meter\s*\{[^}]*width:\s*6px#s', $loaderRules), 'the track is a 6px vertical rail');
+T::truthy((bool) preg_match('#\.boot__fill\s*\{[^}]*scaleY\(#s', $loaderRules), 'the fill scales vertically');
+// And it must be on every page, not only the landing page.
+foreach (array('partials/shell.php') as $shellFile) {
+    $shellBody = (string) @file_get_contents(Config::path($shellFile));
+    T::truthy(strpos($shellBody, 'boot__meter') !== false, 'the shell renders the loading rail, so every page gets it');
+    T::truthy(strpos($shellBody, 'data-boot-figure') !== false, 'the shell renders the percentage readout');
+}
 T::truthy(strpos($md3Css, '@keyframes boot-rise') !== false, 'the loading content settles in on entry');
 T::truthy(strpos($md3Css, 'filter: blur(8px)') !== false, 'the backdrop is blurred, not flat');
 T::truthy(strpos($md3Css, '@media (orientation: portrait)') !== false, 'the portrait orientation is handled');

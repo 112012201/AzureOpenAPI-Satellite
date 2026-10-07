@@ -600,32 +600,63 @@ done
 | 2026-10-07 | 首页数据修正 | 过时的 `3 h cache TTL` → `6 h refresh interval`；无可测依据的 `99.9% cache hit` → 实时 `service uptime` |
 | 2026-10-07 | 加载画面改为参照 **endfield.hypergryph.com** 的结构 | 全屏暗底 + `blur(8px)` 背景、居中方框标记、超大百分比读数、细进度条；离场为 `::after` 色带 `scaleX(0→1)` 横向擦除（`transform-origin:left`，560ms `cubic-bezier(1,0,.7,1)`）+ 延迟淡出。横屏进度条横向、竖屏自动改为左侧竖条（`orientation` 媒体查询）。**配色用本站品牌青而非参考站的 `#fffa00`，圆角保持 0** |
 
-### 加载画面（`/` 与 `/docs`）
+### 加载画面（**所有 HTML 页面**）
 
-**结构参照 endfield.hypergryph.com**，下列数值是从它公开的样式表里读出来的，两者在关键处一致：
+**结构参照 endfield.hypergryph.com**，但按运维要求做了两处硬性改动：**动效全部为垂直方向**、**缓动全部为 `linear`**。
 
-| 项 | 参考站 | 本站 |
-|---|---|---|
-| 容器 | `fixed;100%×100%;#141414;flex 居中;z-index:100` | 同结构，底色取暗令牌 `oklch(0.145 0.009 240)`，`z-index:200` |
-| 背景 | 全屏图 + `filter:blur(8px)` | 全屏 CSS 渐变 + **`filter:blur(8px)`**（无请求、不会 404） |
-| 横屏进度条 | `left:0;bottom:17.75rem;width:82.4%;height:2.5rem` | `width:min(82.4vw,1100px)`，填充 `scaleX` |
-| 竖屏进度条 | `left:0;top:0;width:1.25rem;height:100%`，填充 `scaleY` | `width:5px;height:100%`，填充 **`scaleY`** |
-| 百分比 | `font-size:4.375rem` + `%` `3.25rem` | `clamp(…, 4.375rem)` 上限一致 |
-| 离场 | `opacity 1s 1.4s` + `::after` 色带 `scaleX(0→1)` | 擦除 560ms `cubic-bezier(1,0,.7,1)` + 淡出 320ms（延迟 560ms） |
+| 项 | 实现 |
+|---|---|
+| **覆盖范围** | `/` `/index` `/docs` `/legal` `/privacy` `/terms` + 错误页（`error.html`）。**`/v1/*` 与静态资源不带**——API 客户端拿到的是数据，不该被加载页拦 |
+| 容器 | `position:fixed;inset:0;z-index:200`，暗令牌 `oklch(0.145 0.009 240)` |
+| 背景 | 全屏 CSS 渐变 + **`filter:blur(8px)`**（无请求、不会 404） |
+| 进度轨 | **左缘竖条 `width:6px; height:100%`**，填充 `scaleY` 向下生长，`transform-origin:center top` |
+| 未完成段 | `#fff` 26% —— 12% 时填充段与未完成段明度几乎相同，进度条就失去意义了，这是实测后调高的 |
+| 百分比 | 轨道右侧（横屏 `left:2.25rem`，竖屏 `1.75rem`），`clamp(…, 4.375rem)` |
+| 入场 | `boot-rise`：`translateY(14px → 0)`，420ms **linear** |
+| 标记 | `boot-orbit` 垂直上下 2.4s **linear** + `boot-scan` 扫描线自上而下 1.6s **linear** |
+| 离场 | `boot-wipe` **`scaleY(0 → 1)` 自上而下铺满** 620ms **linear**，随 `opacity 320ms linear 620ms` 淡出 |
 
-**两处刻意不同**：accent 用本站品牌青（非 `#fffa00`），圆角保持 0（扁平直角是全站规则）。
-**同步注意**：`assets/consent.js` 里的 `BOOT_EXIT_MS = 940`（560 擦除 + 320 淡出 + 余量）必须与 `md3.css` 的 `.boot--done` 时序一起改，两处注释互相指向。
+**六处动画/过渡实测全部为 `linear`**：`boot-rise` · `boot-orbit` · `boot-scan` · `boot-wipe` · `transform 240ms` · `opacity`。
+**横向要素零残留**：`scaleX` 与 `translateX` 已从加载段完全删除；`orientation` 媒体查询现在**只调尺寸（读数左边距与字号），不再改变轴向**。
 
-**数字是真实进度**：`setProgress()` 同时写 `--boot-progress` 与百分比文本，由 Cap 挑战的实际阶段驱动（15 → 45 → 75 → 100），不是定时器模拟。
+> **时序耦合**：`assets/consent.js` 的 `BOOT_MIN_MS = 1400`（最小驻留，保证入场与擦除真正看得见）与 `BOOT_EXIT_MS = 960`（620 擦除 + 320 淡出 + 余量）必须与 `md3.css` 的 `.boot--done` 一起改，两处注释互相指向。改错会让覆盖层提前移除，擦除只播一半。
 
-**验收命令**（离场动画极短，靠重放类名确定性验收，不要靠时序取样）：
+**数字是真实进度**：`setProgress()` 同时写 `--boot-progress`（CSS 决定纵向生长）与百分比文本，由 Cap 挑战的实际阶段驱动（15 → 45 → 75 → 100），不是定时器模拟。
+
+**验收：**
+
+```bash
+# 覆盖范围：这六个页面都必须带加载页
+for p in / /index /docs /legal /privacy /terms; do
+  printf '%-10s %s\n' "$p" "$(curl -s -H 'Host: satellite.api.authskin.xyz' http://127.0.0.1$p | grep -c 'data-boot-figure')"
+done
+# API 与静态资源必须不带（期望无输出）
+for p in /v1/meta /v1/health /v1/tle/weather /openapi.yaml /assets/app.css; do
+  curl -s -H 'Host: satellite.api.authskin.xyz' http://127.0.0.1$p | grep -q 'data-boot-figure' && echo "泄漏: $p"
+done
+```
+
+**浏览器内验证**（比读 CSS 文件可靠：能同时确认规则真的解析生效、以及实测几何）：
 
 ```js
-// 在页面控制台执行：重放擦除并在中途查看
-var b = document.querySelector('[data-boot]') || (function(){ var d=document.createElement('div');
-  d.className='boot'; d.setAttribute('data-boot',''); document.body.appendChild(d); return d; })();
-b.classList.add('boot--done');
-getComputedStyle(b, '::after').transform;   // 应看到 matrix(0.x, 0, 0, 1, 0, 0) 逐步变为 1
+// 控制台执行
+var t = document.querySelector('.boot__track').getBoundingClientRect();
+var f = document.querySelector('.boot__fill').getBoundingClientRect();
+({ track: [t.x, t.y, t.width, t.height],        // 期望 [0, 0, 6, 视口高]
+   fill: [f.width, f.height],                    // 期望 [6, 0.45 × 视口高]
+   transform: getComputedStyle(document.querySelector('.boot__fill')).transform,
+   origin: getComputedStyle(document.querySelector('.boot__fill')).transformOrigin })
+// 期望 transform 为 matrix(1, 0, 0, 0.45, 0, 0)，origin 为 "3px 0px"（即 center top）
+```
+
+> **注意**：读 CSS 文件不足以判定，因为浏览器可能仍在执行旧副本（本项目已因此误判过一次）。
+> 判据是**从浏览器内读回 `sheet.cssRules`**，或确认页面上 `md3.css?v=` 的哈希已变化。
+
+**改了 `shell.php` / 公告条 / 同意弹窗 / 三语词条后必须重新生成错误页**（它内嵌了 shell）：
+
+```bash
+/www/server/php/84/bin/php bin/build-error-page.php          # 生成
+/www/server/php/84/bin/php bin/build-error-page.php --check  # 过期则退出码 1
 ```
 
 ---
