@@ -119,13 +119,24 @@ final class Tle extends Base
         $source = Config::source($id);
 
         if (empty($result['data'])) {
+            // Repository::source() returns {data, cache, error} -- it has no
+            // count/ok/cache-status fields. publicSources() reads all of them, so
+            // the full shape has to be built here. Without this the 503 path
+            // logged "Undefined array key \"count\"" and "… \"cache\"" (Tle.php
+            // 230/232) on every request during an upstream outage.
+            $cacheStatus = isset($result['cache']['status']) ? (string) $result['cache']['status'] : 'MISS';
+            $cacheAge = isset($result['cache']['age']) ? (int) $result['cache']['age'] : 0;
             self::upstreamFailure(
                 'Upstream "' . $id . '" is unavailable and no cached copy exists.',
                 array($id => array(
-                    'id'    => $id,
-                    'label' => isset($source['label']) ? $source['label'] : $id,
-                    'ok'    => false,
-                    'error' => $result['error'],
+                    'id'          => $id,
+                    'label'       => isset($source['label']) ? $source['label'] : $id,
+                    'count'       => 0,
+                    'ok'          => false,
+                    'cache'       => $cacheStatus,
+                    'age_seconds' => $cacheAge,
+                    'ttl'         => isset($source['ttl']) ? (int) $source['ttl'] : 0,
+                    'error'       => isset($result['error']) ? (string) $result['error'] : '',
                 ))
             );
         }
@@ -170,7 +181,7 @@ final class Tle extends Base
                     . gmdate('Y-m-d H:i:s', $lastModified) . ' UTC)';
             }
         } else {
-            $comments[] = Config::get('service.name', 'Satellite Data API') . ' v' . Config::get('service.version', '') . ' - source: ' . (isset($source['label']) ? $source['label'] : $id);
+            $comments[] = Config::get('service.name', 'AzureOpenAPI for Satellite') . ' v' . Config::get('service.version', '') . ' - source: ' . (isset($source['label']) ? $source['label'] : $id);
             $comments[] = 'Generated: ' . gmdate('Y-m-d\TH:i:s\Z', $lastModified);
             $comments[] = 'Satellites: ' . count($records);
             $comments[] = 'Cache: ' . $result['cache']['status'] . ' (ttl ' . $ttl . 's)';
@@ -217,6 +228,15 @@ final class Tle extends Base
     }
 
     /**
+     * Normalise the per-source summary for the public payload.
+     *
+     * Callers feed this from two differently shaped producers
+     * (Repository::merged() supplies count/ok/cache/age_seconds/ttl, while
+     * Repository::source() supplies only data/cache/error), so every field is
+     * read defensively. Requesting an absent key produced a PHP warning on the
+     * 503 path and a null in the public document, both of which are failures the
+     * caller should never see.
+     *
      * @param array<string,array> $sources
      * @return array<int,array>
      */
@@ -224,14 +244,15 @@ final class Tle extends Base
     {
         $out = array();
         foreach ($sources as $source) {
+            $ok = !empty($source['ok']);
             $out[] = array(
-                'id'          => $source['id'],
-                'label'       => $source['label'],
-                'count'       => $source['count'],
-                'ok'          => $source['ok'],
-                'cache'       => $source['cache'],
-                'age_seconds' => isset($source['age_seconds']) ? $source['age_seconds'] : 0,
-                'error'       => $source['ok'] ? null : $source['error'],
+                'id'          => isset($source['id']) ? (string) $source['id'] : '',
+                'label'       => isset($source['label']) ? (string) $source['label'] : '',
+                'count'       => isset($source['count']) ? (int) $source['count'] : 0,
+                'ok'          => $ok,
+                'cache'       => isset($source['cache']) ? (string) $source['cache'] : '',
+                'age_seconds' => isset($source['age_seconds']) ? (int) $source['age_seconds'] : 0,
+                'error'       => $ok ? null : (isset($source['error']) ? (string) $source['error'] : ''),
             );
         }
 
@@ -242,7 +263,7 @@ final class Tle extends Base
     {
         $ttl = null;
         foreach ($sources as $source) {
-            if (!$source['ok']) {
+            if (empty($source['ok'])) {
                 continue;
             }
             $ttl = $ttl === null ? (int) $source['ttl'] : min($ttl, (int) $source['ttl']);
@@ -333,7 +354,7 @@ final class Tle extends Base
             $comments[] = 'Merged satellites: ' . count($result['data']);
             $comments[] = 'Generated: ' . gmdate('Y-m-d H:i:s', $lastModified) . ' UTC';
         } else {
-            $comments[] = Config::get('service.name', 'Satellite Data API') . ' v' . Config::get('service.version', '');
+            $comments[] = Config::get('service.name', 'AzureOpenAPI for Satellite') . ' v' . Config::get('service.version', '');
             $comments[] = 'Generated: ' . gmdate('Y-m-d\TH:i:s\Z', $lastModified);
             $comments[] = 'Satellites: ' . count($result['data']);
             $comments[] = 'Cache TTL: ' . $ttl . 's';

@@ -18,3 +18,6 @@ conf/config.php
 # Agent session state (handoff checkpoints / plan), not a deliverable
 .ai-memory/
 _plan.md
+
+# Per-release planning documents (spec + wave plan) kept with the release notes
+_plan-v3.1.md

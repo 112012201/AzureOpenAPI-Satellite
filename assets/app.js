@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Satellite Data API — shared front-end behaviour
+   AzureOpenAPI for Satellite — shared front-end behaviour
    Plain ES5-compatible vanilla JS. No dependencies, no external requests.
    Everything lives on a single global: window.SatApi
    ========================================================================== */

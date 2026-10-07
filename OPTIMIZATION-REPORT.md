@@ -51,7 +51,7 @@
 | B7 | 只支持一种表示（TLE 纯文本 或 JSON 各自固定） | 内容协商：`Accept` 或 `?format=tle|json`，同一端点两种表示 |
 | B8 | 无请求追踪 | 生成/透传 `X-Request-Id`，日志与 problem 文档均带 `request_id` |
 | B9 | 无速率限制说明与实现 | `RateLimit`（Redis INCR / 文件计数）+ `X-RateLimit-*` + 429 problem，默认关闭可由环境变量启用 |
-| B10 | OpenAPI 3.0.0，且**与实际响应不符**（`norad_cat_id` 整数/`object_name`/`line1` 等字段名错误），缺 `operationId`、示例、错误响应 | 重写为 OpenAPI 3.1，129 个 `$ref` 全部可解析，**逐字段对齐真实响应样本**，含 19 个 operation、全部错误码与示例 |
+| B10 | OpenAPI 3.1.2789-beta，且**与实际响应不符**（`norad_cat_id` 整数/`object_name`/`line1` 等字段名错误），缺 `operationId`、示例、错误响应 | 重写为 OpenAPI 3.1，129 个 `$ref` 全部可解析，**逐字段对齐真实响应样本**，含 19 个 operation、全部错误码与示例 |
 
 ### C. 缓存与性能
 
@@ -150,7 +150,7 @@ POST /v1/maintenance            切换维护（Bearer Token）
 ```json
 {
   "meta": {
-    "service": "Satellite Data API", "version": "2.2.0", "api_version": "v1",
+    "service": "AzureOpenAPI for Satellite", "version": "3.1.2789-beta", "api_version": "v1",
     "generated": "2026-09-20T05:52:38Z", "request_id": "req_b9c39d706f6bddbf",
     "elapsed_ms": 3, "count": 3,
     "sources": [{ "id": "weather", "label": "CelesTrak Weather", "count": 3, "ok": true,

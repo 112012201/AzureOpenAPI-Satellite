@@ -304,7 +304,7 @@ final class Client
         $defaults = array(
             'timeout'         => (int) Config::get('http.timeout', 20),
             'connect_timeout' => (int) Config::get('http.connect_timeout', 8),
-            'user_agent'      => (string) Config::get('http.user_agent', 'SatelliteDataAPI'),
+            'user_agent'      => (string) Config::get('http.user_agent', 'AzureOpenAPI-for-Satellite'),
             'verify_tls'      => (bool) Config::get('http.verify_tls', true),
             'ca_bundle'       => (string) Config::get('http.ca_bundle', ''),
             'retries'         => (int) Config::get('http.retries', 2),

@@ -234,7 +234,7 @@ final class Maintenance
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>503 - Scheduled maintenance | Satellite Data API</title>
+<title>503 - Scheduled maintenance | AzureOpenAPI for Satellite</title>
 <style>
 :root{color-scheme:light dark;--bg:#f6f7f9;--fg:#111827;--muted:#6b7280;--card:#ffffff;--line:#e5e7eb;--accent:#0891b2}
 @media (prefers-color-scheme:dark){:root{--bg:#0b1120;--fg:#e5e7eb;--muted:#9ca3af;--card:#111827;--line:#1f2937;--accent:#22d3ee}}
@@ -268,7 +268,7 @@ a{color:var(--accent)}
     <dt>Status page</dt><dd><a href="{$home}/v1/status">{$home}/v1/status</a></dd>
   </dl>
   <footer>
-    <span>Satellite Data API &middot; CelesTrak / AMSAT / SatNOGS</span>
+    <span>AzureOpenAPI for Satellite &middot; CelesTrak / AMSAT / SatNOGS</span>
     <span><a href="{$docs}">API docs</a>{$contactHtml}</span>
   </footer>
 </main>

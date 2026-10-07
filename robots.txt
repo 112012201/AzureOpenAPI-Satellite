@@ -1,4 +1,4 @@
-# Satellite Data API
+# AzureOpenAPI for Satellite
 # Human documentation and the interactive reference are public; the API paths
 # are meant for machines and are not useful to crawlers.
 # https://www.rfc-editor.org/rfc/rfc9309

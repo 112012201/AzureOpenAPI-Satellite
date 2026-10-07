@@ -12,8 +12,8 @@
 return array(
 
     'service' => array(
-        // 'name'        => 'Satellite Data API',
-        // 'version'     => '2.2.0',
+        // 'name'        => 'AzureOpenAPI for Satellite',
+        // 'version'     => '3.1.2789-beta',
         // 'homepage'    => 'https://satellite.api.authskin.xyz',
         // 'build'       => 'edgeone-2026-02',
     ),

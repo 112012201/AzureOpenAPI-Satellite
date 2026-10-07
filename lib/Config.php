@@ -35,9 +35,9 @@ final class Config
             'root' => self::$root,
 
             'service' => array(
-                'name'        => 'Satellite Data API',
-                'slug'        => 'satellite-api',
-                'version'     => '3.0.0',
+                'name'        => 'AzureOpenAPI for Satellite',
+                'slug'        => 'azureopenapi-for-satellite',
+                'version'     => '3.1.2789-beta',
                 'api_version' => 'v1',
                 'description' => 'Unified TLE and satellite metadata proxy (CelesTrak, AMSAT, SatNOGS).',
                 'homepage'    => 'https://satellite.api.authskin.xyz',
@@ -62,7 +62,7 @@ final class Config
             ),
 
             'http' => array(
-                'user_agent'  => 'SatelliteDataAPI/3.0 (+https://satellite.api.authskin.xyz)',
+                'user_agent'  => 'AzureOpenAPI-for-Satellite/3.1.2789-beta (+https://satellite.api.authskin.xyz)',
                 'verify_tls'  => true,
                 'ca_bundle'   => '',
                 'retries'     => 2,
@@ -146,6 +146,115 @@ final class Config
             'admin' => array(
                 // Empty token => maintenance writes are disabled (read-only mode).
                 'token' => '',
+            ),
+
+            // ------------------------------------------------------------------
+            // Site announcement banner.
+            //
+            // Rendered server-side into the HTML so it is visible without
+            // JavaScript and is announced by screen readers. `id` is the identity
+            // of the notice: changing it makes a previously dismissed banner
+            // reappear (the dismissal cookie stores the id, not a boolean).
+            // `expires_at` is evaluated on the SERVER: a client with a wrong
+            // clock must not be able to keep an expired notice alive.
+            // ------------------------------------------------------------------
+            'announcement' => array(
+                'enabled'    => false,
+                'id'         => '',
+                'text'       => '',
+                'href'       => '',
+                'href_text'  => '',
+                'level'      => 'info',   // info | warning
+                'expires_at' => '',       // '' = never; otherwise ISO-8601 UTC
+            ),
+
+            // ------------------------------------------------------------------
+            // Consent (privacy policy + terms of service acknowledgement).
+            //
+            // The contract is stateless so it survives CDN caching:
+            //   ?consent=privacy,terms&consent_version=1
+            //   X-Consent: privacy,terms;version=1
+            //
+            // `required` also gates enforcement. It is false by default so an
+            // existing integration is never broken by a new legal notice; set
+            // SATAPI_CONSENT_REQUIRED=1 to answer 451 without an acknowledgement.
+            // Bumping `version` invalidates every previous acknowledgement, which
+            // is what a material change to either document requires.
+            // ------------------------------------------------------------------
+            'consent' => array(
+                'required' => false,
+                'version'  => 1,
+                'items'    => array('privacy', 'terms'),
+                'docs'     => array(
+                    'privacy' => '/legal/privacy.html',
+                    'terms'   => '/legal/terms.html',
+                ),
+                // Paths that never require an acknowledgement: the notice itself,
+                // the machine-readable contract, the probes an operator needs, and
+                // the very document a client is being asked to read.
+                'exempt_paths' => array(
+                    '/v1/health', '/v1/health/live', '/v1/health/ready',
+                    '/v1/status', '/v1/meta', '/v1/consent/status',
+                    '/v1/consent/verify-pow',
+                    '/docs.html', '/openapi.yaml',
+                    '/legal/privacy.html', '/legal/terms.html', '/legal/index.html',
+                ),
+                // Longest accepted value for ?consent=, in bytes. Guards logs.
+                'max_param_bytes' => 512,
+            ),
+
+            // ------------------------------------------------------------------
+            // Proof of work (Cap) in front of the HTML entry points.
+            //
+            // Only the browser entry points are challenged: an API client cannot
+            // solve a proof of work, and challenging /v1/* would also make every
+            // response uncacheable at the CDN.
+            //
+            // `fail_open` is deliberate. A third-party challenge service going
+            // down must degrade the protection, never lock the whole site, so an
+            // unreachable or slow Cap instance results in a pass plus a logged
+            // warning and an X-PoW-Status header the page can surface.
+            // ------------------------------------------------------------------
+            'pow' => array(
+                'enabled'      => false,
+                'provider'     => 'cap',
+                // Public base URL of the Cap instance as the BROWSER sees it;
+                // it is also what the widget calls, so it must not be loopback.
+                'endpoint'     => '/cap',
+                'site_key'     => '',
+                // Prefer SATAPI_POW_SECRET_KEY so the secret stays out of the repo.
+                'secret_key'   => '',
+                'timeout_ms'   => 5000,
+                'fail_open'    => true,
+                'session_ttl'  => 43200,   // cap_session cookie lifetime, seconds
+                'exempt_paths' => array(
+                    '/v1/health', '/v1/health/live', '/v1/health/ready',
+                    '/v1/status', '/v1/meta', '/v1/consent/status',
+                    '/v1/consent/verify-pow',
+                    '/legal/privacy.html', '/legal/terms.html', '/legal/index.html',
+                ),
+            ),
+
+            // ------------------------------------------------------------------
+            // Cookie categories exposed to the consent dialog.
+            //
+            // `essential` cookies are written even when the visitor rejects
+            // everything: they are what makes the visitor's own choice and the
+            // proof-of-work session possible. That is stated plainly in the dialog
+            // and in the privacy policy rather than being quietly assumed.
+            // ------------------------------------------------------------------
+            'cookies' => array(
+                'version' => 1,
+                'essential' => array(
+                    'cookie_consent'         => 'Stores the choice made in the cookie dialog.',
+                    'announcement_dismissed' => 'Remembers which notice you dismissed.',
+                    'cap_session'            => 'Keeps a passed proof-of-work check for this browser.',
+                ),
+                'preferences' => array(
+                    'satapi-theme' => 'Remembers the light or dark theme you picked.',
+                ),
+                'analytics' => array(),
+                'lifetime_days' => 180,
             ),
 
             'legacy' => array(
@@ -298,6 +407,18 @@ final class Config
             'SATAPI_MYSQL_USER'           => 'metrics.mysql.user',
             'SATAPI_MYSQL_PASSWORD'       => 'metrics.mysql.password',
             'SATAPI_MYSQL_RETENTION_DAYS' => 'metrics.mysql.retention_days',
+            'SATAPI_ANNOUNCEMENT_ENABLED' => 'announcement.enabled',
+            'SATAPI_ANNOUNCEMENT_ID'      => 'announcement.id',
+            'SATAPI_ANNOUNCEMENT_TEXT'    => 'announcement.text',
+            'SATAPI_ANNOUNCEMENT_HREF'    => 'announcement.href',
+            'SATAPI_ANNOUNCEMENT_EXPIRES' => 'announcement.expires_at',
+            'SATAPI_CONSENT_REQUIRED'     => 'consent.required',
+            'SATAPI_CONSENT_VERSION'      => 'consent.version',
+            'SATAPI_POW_ENABLED'          => 'pow.enabled',
+            'SATAPI_POW_ENDPOINT'         => 'pow.endpoint',
+            'SATAPI_POW_SITE_KEY'         => 'pow.site_key',
+            'SATAPI_POW_SECRET_KEY'       => 'pow.secret_key',
+            'SATAPI_POW_FAIL_OPEN'        => 'pow.fail_open',
         );
 
         foreach ($map as $env => $path) {

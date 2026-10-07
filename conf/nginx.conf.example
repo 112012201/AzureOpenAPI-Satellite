@@ -1,5 +1,5 @@
 # =============================================================================
-#  Satellite Data API - nginx site configuration (reference)
+#  AzureOpenAPI for Satellite - nginx site configuration (reference)
 #
 #  Target: BT Panel / aaPanel style deployment on /www/wwwroot/<site>, PHP-FPM
 #  8.x, Tencent Cloud EdgeOne in front of the origin.

@@ -30,7 +30,7 @@ function page(size, maskable) {
 html,body{margin:0;padding:0;width:${size}px;height:${size}px;background:${bg};overflow:hidden}
 svg{display:block;width:${size}px;height:${size}px}
 </style></head><body>
-<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Satellite Data API">
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AzureOpenAPI for Satellite">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#0891b2"/><stop offset="1" stop-color="#155e75"/>

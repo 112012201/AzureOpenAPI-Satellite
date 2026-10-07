@@ -1,5 +1,5 @@
 {
-    "name": "Satellite Data API",
+    "name": "AzureOpenAPI for Satellite",
     "short_name": "SatAPI",
     "description": "Unified TLE and satellite metadata for CelesTrak, AMSAT and SatNOGS.",
     "id": "/",

@@ -1,4 +1,4 @@
-# Satellite Data API v2.2
+# AzureOpenAPI for Satellite v2.2
 
 统一的 TLE 与卫星元数据代理服务，聚合 **CelesTrak（Weather + Amateur）**、**AMSAT**、**SatNOGS DB** 三个上游，
 对外提供去重合并的 TLE 流、单源 TLE、卫星/发射机目录、AMSAT 实时状态报告，以及健康检查与状态面板。

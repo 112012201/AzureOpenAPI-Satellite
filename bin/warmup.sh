@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  Satellite Data API - cache warmup / refresh
+#  AzureOpenAPI for Satellite - cache warmup / refresh
 #
 #  Improvements over the previous version:
 #    - all configuration comes from the environment (no hard coded paths),

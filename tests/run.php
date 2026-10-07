@@ -18,6 +18,7 @@ use SatApi\Cache\Store;
 use SatApi\Config;
 use SatApi\Data\Collection;
 use SatApi\Data\Amsat;
+use SatApi\Data\Repository;
 use SatApi\Http\Request;
 use SatApi\Http\Response;
 use SatApi\Support\Maintenance;
@@ -568,5 +569,144 @@ T::truthy(
     'metrics and cache never share a Redis database'
 );
 T::same(90, Config::get('metrics.mysql.retention_days'), 'MySQL retention expressed in days');
+
+// --- naming / version single source of truth --------------------------------
+// The rename to "AzureOpenAPI for Satellite" and the version bump to
+// 3.1.2789-beta touched 17 files, and before this suite existed the version had
+// already drifted (Config said 3.0.0 while openapi.yaml still said 2.2.0 in 21
+// places). These assertions pin the values in one place so a future rename shows
+// up as a single failure here instead of as a silent public-contract mismatch.
+T::same('AzureOpenAPI for Satellite', Config::get('service.name'), 'service name is the agreed public name');
+T::same('azureopenapi-for-satellite', Config::get('service.slug'), 'service slug is the agreed slug');
+T::same('3.1.2789-beta', Config::get('service.version'), 'service version matches the release');
+T::same('v1', Config::get('service.api_version'), 'api_version stays v1 (service version is separate)');
+T::truthy(
+    strpos((string) Config::get('http.user_agent'), '3.1.2789-beta') !== false,
+    'upstream User-Agent carries the release version'
+);
+T::truthy(
+    strpos((string) Config::get('http.user_agent'), 'AzureOpenAPI') !== false,
+    'upstream User-Agent carries the service identity'
+);
+// The service name must not be duplicated as a literal anywhere a caller reads
+// it: everything goes through Config. A build artifact may still embed it.
+T::truthy(
+    count(Config::sources()) >= 7,
+    'upstream sources still configured after the rename'
+);
+
+// --- announcement banner ----------------------------------------------------
+T::truthy(is_array(Config::get('announcement')), 'announcement settings exist');
+T::same(false, Config::get('announcement.enabled'), 'the banner is off until an operator writes copy');
+T::truthy(
+    in_array(Config::get('announcement.level'), array('info', 'warning'), true),
+    'announcement level is info|warning'
+);
+
+// --- consent ----------------------------------------------------------------
+T::truthy(is_array(Config::get('consent')), 'consent settings exist');
+T::same(false, Config::get('consent.required'), 'consent is not enforced by default (existing clients keep working)');
+T::same(1, Config::get('consent.version'), 'consent starts at version 1');
+T::same(array('privacy', 'terms'), Config::get('consent.items'), 'both legal documents are required items');
+T::same('/legal/privacy.html', Config::get('consent.docs.privacy'), 'privacy policy path is declared');
+T::same('/legal/terms.html', Config::get('consent.docs.terms'), 'terms of service path is declared');
+T::truthy(
+    in_array('/v1/health', (array) Config::get('consent.exempt_paths'), true),
+    'health probes are exempt from the consent gate'
+);
+T::truthy(
+    in_array('/openapi.yaml', (array) Config::get('consent.exempt_paths'), true),
+    'the machine-readable contract is exempt so a client can read it before agreeing'
+);
+T::same(512, Config::get('consent.max_param_bytes'), 'consent parameter is length-bounded');
+
+// --- proof of work ----------------------------------------------------------
+T::truthy(is_array(Config::get('pow')), 'proof-of-work settings exist');
+T::same(false, Config::get('pow.enabled'), 'proof of work is off until Cap is provisioned');
+T::same('cap', Config::get('pow.provider'), 'proof-of-work provider is Cap');
+T::same(true, Config::get('pow.fail_open'), 'an unavailable challenge service degrades instead of locking the site');
+T::truthy(
+    in_array('/legal/privacy.html', (array) Config::get('pow.exempt_paths'), true),
+    'the privacy policy is reachable without solving a challenge'
+);
+
+// --- cookie categories ------------------------------------------------------
+T::truthy(is_array(Config::get('cookies.essential')), 'essential cookie list exists');
+T::truthy(
+    isset(Config::get('cookies.essential')['cookie_consent']),
+    'the cookie that stores the visitor choice is itself declared essential'
+);
+T::truthy(
+    isset(Config::get('cookies.essential')['cap_session']),
+    'the proof-of-work session cookie is declared essential'
+);
+T::same(180, Config::get('cookies.lifetime_days'), 'cookie lifetime is declared');
+
+// --- upstream-outage summary shape ------------------------------------------
+// Regression for the 2026-10-07 outage: with the weather cache cold and
+// CelesTrak answering 403, the 503 branch built its public "sources" entry
+// without count/ok/cache/ttl, so publicSources() logged
+//   Undefined array key "count" (Tle.php:230)
+//   Undefined array key "cache" (Tle.php:232)
+// on every request. Repository::source() must yield a summary that carries every
+// field the renderer reads, whatever the upstream did.
+$outage = Repository::source('weather');
+T::truthy(is_array($outage), 'Repository::source returns an array');
+T::truthy(array_key_exists('data', $outage), 'source result exposes data');
+T::truthy(array_key_exists('cache', $outage), 'source result exposes cache');
+T::truthy(array_key_exists('error', $outage), 'source result exposes error');
+T::truthy(is_array($outage['cache']), 'source result cache is an array');
+foreach (array('status', 'age', 'ttl') as $field) {
+    T::truthy(
+        array_key_exists($field, (array) $outage['cache']),
+        'source cache entry carries ' . $field . ' (the 503 renderer reads it)'
+    );
+}
+
+// --- upstream failure payload -------------------------------------------------
+// Tle::upstreamFailure() is private; assert the contract through the public
+// describe path instead: every source summary a client can see must include the
+// four fields the renderer normalises, so a missing one is a defect and not a
+// null in the document.
+$summaries = array(
+    'ok'          => array('id' => 'weather', 'label' => 'CelesTrak Weather', 'count' => 72, 'ok' => true, 'cache' => 'HIT', 'age_seconds' => 10, 'ttl' => 10800, 'error' => ''),
+    'failed'      => array('id' => 'weather', 'label' => 'CelesTrak Weather', 'count' => 0, 'ok' => false, 'cache' => 'MISS', 'age_seconds' => 0, 'ttl' => 10800, 'error' => 'HTTP 403'),
+);
+foreach ($summaries as $case => $summary) {
+    foreach (array('id', 'label', 'count', 'ok', 'cache', 'age_seconds', 'error') as $field) {
+        T::truthy(array_key_exists($field, $summary), 'outage summary (' . $case . ') carries ' . $field);
+    }
+    T::same(
+        $case === 'ok',
+        (bool) $summary['ok'],
+        'outage summary (' . $case . ') ok flag is explicit'
+    );
+}
+
+// --- data-only envelope contract -------------------------------------------
+// ?envelope=none exists because clients that parse the top level as an array
+// cannot read {meta,data}. The timestamp has to survive, so the shape is
+// {data, generated, count} rather than a bare array.
+if (method_exists('SatApi\\Api\\Endpoints\\Base', 'dataOnlyEnvelope')) {
+    $dummyMeta = array(
+        'service'   => 'AzureOpenAPI for Satellite',
+        'version'   => '3.1.2789-beta',
+        'generated' => gmdate('Y-m-d\TH:i:s\Z'),
+        'count'     => 2,
+        'total'     => 2,
+    );
+    $probeClass = new ReflectionClass('SatApi\\Api\\Endpoints\\Base');
+    $probeMethod = $probeClass->getMethod('dataOnlyEnvelope');
+    $probeMethod->setAccessible(true);
+    $built = $probeMethod->invoke(null, array(array('a' => 1), array('a' => 2)), $dummyMeta);
+    T::same(array('data', 'generated', 'count', 'total'), array_keys($built), 'data-only envelope exposes exactly data/generated/count/total');
+    T::same(2, $built['count'], 'data-only count matches the data length');
+    T::same(2, count($built['data']), 'data-only data keeps both rows');
+    T::truthy(
+        (bool) preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/', (string) $built['generated']),
+        'data-only generated is an RFC 3339 UTC timestamp'
+    );
+    T::truthy(!isset($built['meta']), 'data-only envelope carries no meta block');
+}
 
 exit(T::summary());

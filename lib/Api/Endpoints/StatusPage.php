@@ -21,7 +21,7 @@ final class StatusPage
     public static function render(array $health, $request = null)
     {
         $version = htmlspecialchars((string) Config::get('service.version', ''), ENT_QUOTES, 'UTF-8');
-        $service = htmlspecialchars((string) Config::get('service.name', 'Satellite Data API'), ENT_QUOTES, 'UTF-8');
+        $service = htmlspecialchars((string) Config::get('service.name', 'AzureOpenAPI for Satellite'), ENT_QUOTES, 'UTF-8');
         $overall = (string) $health['overall'];
         $badgeClass = $overall === 'ok' ? 'ok' : ($overall === 'degraded' ? 'warn' : 'bad');
         $timestamp = htmlspecialchars((string) $health['timestamp'], ENT_QUOTES, 'UTF-8');

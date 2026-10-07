@@ -20,7 +20,7 @@ abstract class Base
     protected static function envelopeMeta(Request $request, array $extra = array())
     {
         $meta = array(
-            'service'     => (string) Config::get('service.name', 'Satellite Data API'),
+            'service'     => (string) Config::get('service.name', 'AzureOpenAPI for Satellite'),
             'version'     => (string) Config::get('service.version', ''),
             'api_version' => 'v1',
             'generated'   => gmdate('Y-m-d\TH:i:s\Z'),

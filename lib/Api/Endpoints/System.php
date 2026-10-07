@@ -312,7 +312,7 @@ final class System extends Base
             'overall'   => $overall,
             'timestamp' => gmdate('Y-m-d H:i:s') . ' UTC',
             'generated' => gmdate('Y-m-d\TH:i:s\Z'),
-            'service'   => 'Satellite API Proxy v' . Config::get('service.version', ''),
+            'service'   => Config::get('service.name', 'AzureOpenAPI for Satellite') . ' v' . Config::get('service.version', ''),
             'version'   => (string) Config::get('service.version', ''),
             'api_version' => 'v1',
             'uptime_seconds' => $upstreams['uptime_seconds'],

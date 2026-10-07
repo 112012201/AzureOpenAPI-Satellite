@@ -292,7 +292,7 @@ final class Cli
 
     private static function help()
     {
-        self::log('Satellite Data API CLI');
+        self::log((string) Config::get('service.name', 'API') . ' CLI v' . (string) Config::get('service.version', ''));
         self::log('  php index.php refresh [--target=tle,satellites,...] [--json]');
         self::log('  php index.php health [--json]');
         self::log('  php index.php prune');
