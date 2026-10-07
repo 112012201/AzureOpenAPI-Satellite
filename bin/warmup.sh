@@ -9,11 +9,22 @@
 #    - the log is rotated and the exit code reflects the upstream status,
 #    - --dry-run / --target=<list> / --quiet are supported.
 #
-#  Suggested crontab (every 10 minutes; the API decides what actually expired):
-#    */10 * * * * /www/wwwroot/satellite.api.authskin.xyz/bin/warmup.sh --quiet
+#  Suggested crontab (every 6 hours, not every 10 minutes):
+#    0 */6 * * * /www/wwwroot/satellite.api.authskin.xyz/bin/warmup.sh --quiet
+#
+#  Why 6 hours: CelesTrak answers HTTP 403 for the whole /NORAD/elements directory
+#  once it judges the download volume excessive. Its own notice states access is
+#  "automatically restored once the excessive downloads have ceased for 2 hours" --
+#  so every extra attempt inside that window restarts the clock. The cache TTLs for
+#  the two CelesTrak groups are 6h to match this cadence, and the SpaceTrack
+#  fallback covers the source while the block is active.
+#
+#  PHP_BIN points at the version the site actually runs (8.4). The previous value
+#  was 8.2 from before the rewrite-config fix; running the cron on a different
+#  interpreter than the site is how version drift starts.
 # =============================================================================
 SITE_ROOT=/www/wwwroot/satellite.api.authskin.xyz
-PHP_BIN=/www/server/php/82/bin/php
+PHP_BIN=/www/server/php/84/bin/php
 TARGETS=tle,satellites,transmitters,amsat-status
 LOG_FILE=/www/wwwroot/satellite.api.authskin.xyz/logs/warmup.log
 MAX_LOG_BYTES=5242880

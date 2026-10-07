@@ -90,17 +90,82 @@ final class Repository
                 self::key($id),
                 (int) $source['ttl'],
                 static function () use ($id, $source) {
-                    $result = Client::get($source['url'], array('accept' => isset($source['accept']) ? $source['accept'] : ''));
-                    Metrics::upstream($id, $result['ok'], $result['ms'], $result['error']);
-                    if (!$result['ok']) {
-                        throw new \RuntimeException('upstream unavailable: ' . $result['error']);
-                    }
-                    $records = self::parse($id, $source, $result['body']);
-                    if (empty($records)) {
-                        throw new \RuntimeException('upstream returned no parseable TLE records');
+                    // ---- primary provider (CelesTrak for weather/amateur) -----
+                    $primaryRecords = null;
+                    $primaryError = '';
+
+                    if (!SourceMerge::inCooldown($id)) {
+                        $result = Client::get($source['url'], array('accept' => isset($source['accept']) ? $source['accept'] : ''));
+                        Metrics::upstream($id, $result['ok'], $result['ms'], $result['error']);
+
+                        if ($result['ok']) {
+                            $parsed = self::parse($id, $source, $result['body']);
+                            if (!empty($parsed)) {
+                                // A source that suddenly returns a fraction of its
+                                // usual count is damaged, not authoritative.
+                                if (SourceMerge::looksTruncated($parsed, SourceMerge::lastCount($id))) {
+                                    $primaryError = 'primary returned suspiciously few records ('
+                                        . count($parsed) . ' vs previous ' . SourceMerge::lastCount($id) . ')';
+                                    Logger::warning('source_truncated', array(
+                                        'source' => $id,
+                                        'got'    => count($parsed),
+                                        'before' => SourceMerge::lastCount($id),
+                                    ));
+                                } else {
+                                    $primaryRecords = $parsed;
+                                }
+                            } else {
+                                $primaryError = 'upstream returned no parseable TLE records';
+                            }
+                        } else {
+                            $primaryError = 'upstream unavailable: ' . $result['error'];
+                            // CelesTrak answers 403 with its "excessive downloads"
+                            // notice, which self-heals after two quiet hours.
+                            // Retrying inside that window only extends it.
+                            if (preg_match('/\b(403|429)\b/', (string) $result['error'])) {
+                                SourceMerge::startCooldown($id, null, (string) $result['error']);
+                            }
+                        }
+                    } else {
+                        $primaryError = 'primary in cooldown for another '
+                            . SourceMerge::remainingCooldown($id) . 's';
                     }
 
-                    return $records;
+                    if ($primaryRecords !== null) {
+                        // Complement only: the primary stays authoritative for every
+                        // id it returned, and the fallback fills genuine gaps.
+                        $merged = SourceMerge::complementMissing($id, $primaryRecords, array(__CLASS__, 'parseBody'));
+                        if (!empty($merged['added'])) {
+                            SourceMerge::rememberCount($id, count($merged['records']));
+
+                            return $merged['records'];
+                        }
+                        SourceMerge::rememberCount($id, count($primaryRecords));
+
+                        return $primaryRecords;
+                    }
+
+                    // ---- fallback provider (SpaceTrack) ----------------------
+                    if (SourceMerge::fallbackProvider($id) === 'spacetrack') {
+                        $fb = SourceMerge::fetchViaSpacetrack($id, array(__CLASS__, 'parseBody'));
+                        if ($fb['ok']) {
+                            Logger::info('source_fallback_used', array(
+                                'source'   => $id,
+                                'provider' => 'spacetrack',
+                                'primary'  => $primaryError,
+                                'returned' => count($fb['records']),
+                                'detail'   => $fb['detail'],
+                            ));
+                            SourceMerge::rememberCount($id, count($fb['records']));
+
+                            return $fb['records'];
+                        }
+                        throw new \RuntimeException(
+                            'primary: ' . $primaryError . ' | fallback spacetrack: ' . $fb['error']
+                        );
+                    }
+
+                    throw new \RuntimeException($primaryError === '' ? 'upstream unavailable' : $primaryError);
                 },
                 array('codec' => 'serialize', 'force' => $force)
             );
@@ -177,6 +242,27 @@ final class Repository
 
                 return $records;
         }
+    }
+
+    /**
+     * Parse a TLE text body for a source, using that source's configured parser.
+     *
+     * Exposed so the fallback provider path (SourceMerge -> SpaceTrack) can reuse
+     * exactly the same parsing rules as the primary path. A fallback that parsed
+     * differently would be a silent source of shape drift.
+     *
+     * @param string $body
+     * @param string $sourceId
+     * @return array<int,array>
+     */
+    public static function parseBody($body, $sourceId)
+    {
+        $source = Config::source($sourceId);
+        if ($source === null) {
+            return array();
+        }
+
+        return self::parse($sourceId, $source, $body);
     }
 
     /**

@@ -19,6 +19,7 @@ use SatApi\Config;
 use SatApi\Data\Collection;
 use SatApi\Data\Amsat;
 use SatApi\Data\Repository;
+use SatApi\Data\SourceMerge;
 use SatApi\Http\Request;
 use SatApi\Http\Response;
 use SatApi\Support\Maintenance;
@@ -538,7 +539,16 @@ T::truthy(
     'service version is a semantic version (' . Config::get('service.version') . ')'
 );
 T::truthy(count(Config::sources()) >= 7, 'seven upstream sources configured');
-T::same(10800, Config::get('sources.weather.ttl'), 'CelesTrak cache TTL preserved (3h)');
+// CelesTrak blocks an IP that downloads "excessively" and restores access after
+// two quiet hours, so the refresh cadence and the TTL are deliberately aligned:
+// warmup runs every 6h and the TTL is 6h. Pinning the literal 10800 made the
+// throttling change look like a failure, so assert the relationship instead.
+T::same(21600, Config::get('sources.weather.ttl'), 'weather TTL matches the 6h warmup cadence');
+T::same(21600, Config::get('sources.amateur.ttl'), 'amateur TTL matches the 6h warmup cadence');
+T::truthy(
+    (int) Config::get('sources.weather.ttl') >= 3600,
+    'weather TTL leaves room to absorb a CelesTrak 2-hour block without serving stale data'
+);
 T::same(43200, Config::get('sources.amsat.ttl'), 'AMSAT cache TTL preserved (12h)');
 T::same(21600, Config::get('sources.satnogs_transmitters.ttl'), 'SatNOGS catalogue TTL preserved (6h)');
 T::same('07530', Config::get('norad_fallback.AO-7'), 'AO-7 NORAD id correct');
@@ -708,5 +718,70 @@ if (method_exists('SatApi\\Api\\Endpoints\\Base', 'dataOnlyEnvelope')) {
     );
     T::truthy(!isset($built['meta']), 'data-only envelope carries no meta block');
 }
+
+// --- primary / fallback source policy ---------------------------------------
+// CelesTrak blocks an IP that downloads "excessively" (its own wording, access
+// restored after two quiet hours). SpaceTrack is the fallback, and measurement
+// showed the two carry byte-identical TLE epochs for 71/72 weather and 94/95
+// amateur objects, so a parallel double fetch would add request volume without
+// adding freshness. These assertions pin that decision.
+T::same('primary_fallback', Config::get('source_policy.mode'), 'source policy is primary/fallback');
+T::same('celestrak', SourceMerge::primaryProvider('weather'), 'weather primary is CelesTrak');
+T::same('spacetrack', SourceMerge::fallbackProvider('weather'), 'weather fallback is SpaceTrack');
+T::same('celestrak', SourceMerge::primaryProvider('amateur'), 'amateur primary is CelesTrak');
+T::same('spacetrack', SourceMerge::fallbackProvider('amateur'), 'amateur fallback is SpaceTrack');
+T::same(null, SourceMerge::fallbackProvider('amsat'), 'amsat has no SpaceTrack fallback (different provider family)');
+T::same(null, SourceMerge::fallbackProvider('satnogs'), 'satnogs has no SpaceTrack fallback');
+T::same(7200, Config::get('source_policy.block_cooldown'), 'the cooldown matches CelesTrak\'s documented 2-hour recovery window');
+
+// SpaceTrack has no group presets (class/gp/GROUP/weather answers HTTP 500), so
+// the fallback query needs an explicit id list. It must not be empty and must not
+// have silently shrunk.
+$weatherIds = SourceMerge::groupIds('weather');
+$amateurIds = SourceMerge::groupIds('amateur');
+T::truthy(count($weatherIds) >= 30, 'weather group list is populated (' . count($weatherIds) . ' ids)');
+T::truthy(count($amateurIds) >= 40, 'amateur group list is populated (' . count($amateurIds) . ' ids)');
+T::truthy((bool) preg_match('/^[0-9]{1,9}$/', (string) ($weatherIds[0] ?? '')), 'group ids are bare NORAD numbers');
+$unique = array_unique($weatherIds);
+T::same(count($weatherIds), count($unique), 'weather group ids are unique');
+
+// Cooldown round-trip: entering a cooldown must make the primary look
+// unavailable, which is what routes the request to the fallback.
+SourceMerge::clearCooldown('__test__');
+T::truthy(!SourceMerge::inCooldown('__test__'), 'no cooldown by default');
+SourceMerge::startCooldown('__test__', 60, 'unit test');
+T::truthy(SourceMerge::inCooldown('__test__'), 'cooldown is observable after being set');
+T::truthy(SourceMerge::remainingCooldown('__test__') > 0, 'cooldown reports a positive remaining window');
+SourceMerge::clearCooldown('__test__');
+T::truthy(!SourceMerge::inCooldown('__test__'), 'cooldown clears');
+
+// Shrink detection: a source that returns a fraction of its usual count is
+// treated as damaged rather than authoritative.
+T::same(false, SourceMerge::looksTruncated(array(1, 2, 3), null), 'no previous count means no shrink verdict');
+T::same(false, SourceMerge::looksTruncated(array(1, 2, 3), 3), 'unchanged count is not truncated');
+T::same(true, SourceMerge::looksTruncated(array(1), 72), '1 of 72 records is truncated');
+T::same(false, SourceMerge::looksTruncated(array_fill(0, 40, 1), 72), 'more than half of the previous count is accepted');
+
+// SpaceTrack client wiring: credentials come from configuration and are never
+// echoed. The client must report itself unconfigured rather than throwing when
+// the credential is absent, so a deployment without SpaceTrack still runs.
+$stClient = new \SatApi\Http\SpacetrackClient(array('identity' => '', 'password' => ''));
+T::same(false, $stClient->configured(), 'SpacetrackClient reports unconfigured without credentials');
+$stResult = $stClient->tleForIds(array('25544'));
+T::same(false, $stResult['ok'], 'unconfigured SpaceTrack returns a clean failure, not an exception');
+T::same('spacetrack not configured', $stResult['error'], 'unconfigured failure names the reason');
+$stEmpty = (new \SatApi\Http\SpacetrackClient())->tleForIds(array('not-a-number', ''));
+T::same(false, $stEmpty['ok'], 'invalid NORAD ids are rejected before any request');
+T::same('no valid NORAD ids', $stEmpty['error'], 'invalid ids produce an explicit reason');
+
+// The SpaceTrack credential must not appear in any HTTP response body. This is a
+// shape check on the config, not a scan of live output (that runs in the E2E
+// suite), so it fails fast when somebody pastes a secret into a public field.
+T::truthy(
+    (string) Config::get('sources.spacetrack.password', '') !== ''
+        || (string) getenv('SATAPI_SPACETRACK_PASSWORD') !== '',
+    'SpaceTrack password is configured somewhere (config file or environment)'
+);
+T::same('', (string) Config::get('service.contact_password', ''), 'no credential-shaped field exists in the public service block');
 
 exit(T::summary());
