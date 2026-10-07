@@ -4,6 +4,7 @@ namespace SatApi\Api;
 
 use SatApi\Http\Request;
 use SatApi\Http\Response;
+use SatApi\Logger;
 use SatApi\Support\Metrics;
 use SatApi\Support\Problem;
 use SatApi\Support\RateLimit;
@@ -36,12 +37,24 @@ final class Router
             return;
         }
 
+        if ($legacyRoute === null) {
+            // The historical .php shims require index.php, which dispatches
+            // without an explicit route id; recover it from the request path.
+            $legacyRoute = self::shellRoute($request);
+        }
+
         if ($legacyRoute !== null) {
             if (!isset(self::$legacyMap[$legacyRoute])) {
                 Problem::send(404, 'Not Found', 'Unknown legacy route.', 'not_found');
             }
-            $route = self::$legacyMap[$legacyRoute];
-            self::run($route, array(), $request);
+            // legacyMap entries are {route, params} envelopes, NOT bare route
+            // descriptors. Passing the envelope straight to run() left
+            // $route['handler'] undefined, which surfaced as
+            //   500 {"detail":"Route handler is not callable."}
+            // plus a php_error warning ("Undefined array key \"handler\"",
+            // Router.php:92) on every legacy .php shim request.
+            $match = self::$legacyMap[$legacyRoute];
+            self::run($match['route'], $match['params'], $request);
 
             return;
         }
@@ -66,8 +79,39 @@ final class Router
         self::run($match['route'], $match['params'], $request);
     }
 
+    /**
+     * Fallback used by the historical .php shims.
+     *
+     * Those files require index.php, which calls dispatch($request) WITHOUT an
+     * explicit route id, so the id has to be recovered from the request path.
+     * Without this every shell fell through to normal matching, which has no
+     * pattern for "/tle_weather.php", and the shim answered 500.
+     *
+     * Accepts both the direct path and the PATH_INFO form so the shims work
+     * under nginx (SCRIPT_NAME=index.php, PATH_INFO=/tle_weather.php), under
+     * Apache (which may prepend the script name) and through tests/request.php.
+     *
+     * @return string|null
+     */
+    private static function shellRoute(Request $request)
+    {
+        self::registerRoutes();
+
+        // Request::path() is derived from REQUEST_URI, so under nginx
+        // (SCRIPT_NAME=/index.php, PATH_INFO=/tle_weather.php) and through
+        // tests/request.php it is already the public path. The index.php prefix
+        // is stripped defensively for Apache-style setups that include it.
+        $candidate = preg_replace('#^/+index\.php#', '', (string) $request->path());
+
+        return self::phpShell($candidate === '' ? '/' : $candidate);
+    }
+
     private static function run(array $route, array $params, Request $request)
     {
+        if (!isset($route['handler'])) {
+            Problem::send(500, 'Internal Server Error', 'Route descriptor is missing its handler.', 'internal_error');
+        }
+
         Metrics::setEndpoint(isset($route['endpoint']) ? $route['endpoint'] : 'unknown');
         Problem::setTextPreferred(!empty($route['text']));
 
@@ -179,9 +223,76 @@ final class Router
             'amsat_status'          => self::legacyRoute(self::$routes, '#^/amsat/status$#', 'amsat_status', '/v1/amsat/status'),
             'health'                => self::legacyRoute(self::$routes, '#^/health$#', 'health', '/v1/health'),
             'status'                => self::legacyRoute(self::$routes, '#^/status$#', 'status', '/v1/status'),
+
+            // ------------------------------------------------------------------
+            // Historical .php file names.
+            //
+            // The five TLE/AMSAT/SatNOGS shims define SATAPI_LEGACY_ROUTE with
+            // these exact ids, and README promises "all legacy URLs keep
+            // working", so they are part of the public surface. health.php is the
+            // historical entry point that served BOTH /health and /status by
+            // inspecting the request path, which one id cannot express -- hence
+            // health_php and status_php as separate ids resolved by phpShell().
+            // ------------------------------------------------------------------
+            'tle_merge_php'         => self::legacyRoute(self::$routes, '#^/tle$#', 'tle_merge', '/v1/tle'),
+            'health_php'            => self::legacyRoute(self::$routes, '#^/health$#', 'health', '/v1/health'),
+            'status_php'            => self::legacyRoute(self::$routes, '#^/status$#', 'status', '/v1/status'),
         );
     }
 
+    /**
+     * Route id for a request that entered through a historical .php file.
+     *
+     * Returns null when the path is not a known shell, so the caller can fall
+     * back to normal routing.
+     *
+     * @return string|null
+     */
+    public static function phpShell($path)
+    {
+        $map = array(
+            '/tle_merge.php'    => 'tle_merge_php',
+            '/tle_weather.php'  => 'tle_weather',
+            '/tle_amateur.php'  => 'tle_amateur',
+            '/tle_amsat.php'    => 'tle_amsat',
+            '/tle_satnogs.php'  => 'tle_satnogs',
+            '/satnogs_satellites_proxy.php'   => 'satnogs_satellites',
+            '/satnogs_transmitters_proxy.php' => 'satnogs_transmitters',
+            '/amsat_status_proxy.php'         => 'amsat_status',
+            // health.php historically answered BOTH /health and /status by
+            // inspecting the request path; one id cannot express both, so the
+            // two entry points get their own ids.
+            '/health.php'       => 'health_php',
+            '/status.php'       => 'status_php',
+        );
+
+        return isset($map[$path]) ? $map[$path] : null;
+    }
+
+    /**
+     * Build a legacyMap entry.
+     *
+     * Resolution order matters: the mapped pattern is a LEGACY pattern
+     * ("#^/tle/weather$#") while the route table only registers the v1 patterns
+     * ("#^/v1/tle/(?<source>weather|amateur|amsat|satnogs)$#"). Matching on the
+     * literal pattern alone therefore failed for every {source} alias and the
+     * old code silently fell back to System::meta -- so /tle_weather.php answered
+     * with the /v1/meta document and carried no Deprecation header.
+     *
+     * The fallback chain is now:
+     *   1. exact legacy pattern present in the route table,
+     *   2. equivalent v1 parameterised route matching the same {source},
+     *   3. System::meta as the last resort for unknown aliases (kept so a future
+     *      alias cannot 500), which phpShell() never reaches because it only
+     *      maps paths it knows.
+     *
+     * @param array  $routes
+     * @param string $pattern
+     * @param string $endpoint
+     * @param string $successor
+     * @param array  $params
+     * @return array{route:array,params:array}
+     */
     private static function legacyRoute(array $routes, $pattern, $endpoint, $successor, array $params = array())
     {
         foreach ($routes as $route) {
@@ -194,14 +305,43 @@ final class Router
             }
         }
 
-        return array('route' => array(
+        // A parameterised alias such as "#^/tle/(?<source>weather|amateur|amsat|satnogs)$#"
+        // reuses the registered v1 route for the same source, so the handler,
+        // the text-negotiation flag and the cache bucket all stay single-sourced.
+        if (isset($params['source'])) {
+            foreach ($routes as $route) {
+                if (strpos($route['pattern'], '/v1/tle/(?<source>') === false) {
+                    continue;
+                }
+                if (strpos($route['pattern'], (string) $params['source']) === false) {
+                    continue;
+                }
+                $route['legacy'] = true;
+                $route['successor'] = $successor;
+                $route['endpoint'] = $endpoint;
+
+                return array('route' => $route, 'params' => $params);
+            }
+        }
+
+        $fallback = array(
             'pattern' => $pattern,
             'methods' => array('GET', 'HEAD'),
             'handler' => array('SatApi\\Api\\Endpoints\\System', 'meta'),
             'endpoint' => $endpoint,
             'legacy' => true,
             'successor' => $successor,
-        ), 'params' => $params);
+        );
+
+        // Only reachable for an alias with no equivalent route: make it loud in
+        // the log instead of silently answering with the wrong document.
+        Logger::warning('legacy_alias_without_route', array(
+            'endpoint'  => $endpoint,
+            'pattern'   => $pattern,
+            'successor' => $successor,
+        ));
+
+        return array('route' => $fallback, 'params' => $params);
     }
 
     /**
@@ -240,6 +380,11 @@ final class Router
      */
     public static function legacyRoutes()
     {
+        // Self-initialising: callers (introspection, tests, future tooling)
+        // otherwise read an empty map and draw the wrong conclusion about the
+        // frozen legacy surface.
+        self::registerRoutes();
+
         return self::$legacyMap;
     }
 }

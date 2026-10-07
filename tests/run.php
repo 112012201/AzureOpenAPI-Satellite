@@ -442,10 +442,62 @@ T::truthy(in_array('/v1/tle', $paths, true), '/v1/tle indexed');
 T::truthy(in_array('/v1/tle/{source}', $paths, true), 'source route indexed with its placeholder');
 T::truthy(in_array('/v1/health/ready', $paths, true), 'readiness probe indexed');
 $legacy = \SatApi\Api\Router::legacyRoutes();
-T::same(10, count($legacy), 'ten legacy route aliases are registered');
+T::same(13, count($legacy), 'thirteen legacy route aliases are registered');
 T::truthy(isset($legacy['tle_weather']), 'legacy tle_weather alias present');
 T::same('/v1/tle/weather', $legacy['tle_weather']['route']['successor'], 'legacy alias points at its v1 successor');
 T::same('weather', $legacy['tle_weather']['params']['source'], 'legacy alias carries its route parameter');
+
+// Regression: every historical .php shell must resolve to a real route whose
+// descriptor actually has a callable handler. v2.2 handed the {route,params}
+// envelope straight to run(), so $route['handler'] was undefined and every
+// shell answered 500 ("Route handler is not callable").
+$shells = array(
+    '/tle_merge.php'                  => 'tle_merge_php',
+    '/tle_weather.php'                => 'tle_weather',
+    '/tle_amateur.php'                => 'tle_amateur',
+    '/tle_amsat.php'                  => 'tle_amsat',
+    '/tle_satnogs.php'                => 'tle_satnogs',
+    '/satnogs_satellites_proxy.php'   => 'satnogs_satellites',
+    '/satnogs_transmitters_proxy.php' => 'satnogs_transmitters',
+    '/amsat_status_proxy.php'         => 'amsat_status',
+    '/health.php'                     => 'health_php',
+    '/status.php'                     => 'status_php',
+);
+foreach ($shells as $shellPath => $expectedId) {
+    T::same($expectedId, \SatApi\Api\Router::phpShell($shellPath), 'phpShell maps ' . $shellPath);
+}
+T::same(null, \SatApi\Api\Router::phpShell('/router.php'), 'router.php is deliberately not a public shell');
+
+foreach ($shells as $shellPath => $routeId) {
+    $entry = isset($legacy[$routeId]) ? $legacy[$routeId] : null;
+    T::truthy(is_array($entry), 'legacyMap has an entry for ' . $routeId);
+    if (!is_array($entry)) {
+        continue;
+    }
+    T::truthy(isset($entry['route']['handler']), $routeId . ' envelope wraps a route descriptor carrying a handler');
+    T::truthy(isset($entry['route']['endpoint']), $routeId . ' envelope carries an endpoint id');
+    T::truthy(isset($entry['params']) && is_array($entry['params']), $routeId . ' envelope carries a params array');
+    T::truthy(is_callable($entry['route']['handler']), $routeId . ' handler is callable');
+
+    // Regression: the {source} aliases used to miss the route table (they were
+    // looked up by their LEGACY pattern "#^/tle/weather$#" while only the v1
+    // pattern is registered) and fell back to System::meta, so /tle_weather.php
+    // answered with the /v1/meta document and no Deprecation header. A TLE shell
+    // must never resolve to the metadata handler.
+    T::truthy(
+        $entry['route']['handler'] !== array('SatApi\\Api\\Endpoints\\System', 'meta'),
+        $routeId . ' does not fall back to the metadata handler'
+    );
+    T::truthy(!empty($entry['route']['legacy']), $routeId . ' descriptor is marked legacy');
+    T::truthy(!empty($entry['route']['successor']), $routeId . ' descriptor names its v1 successor');
+}
+
+// The five {source} aliases must carry their source parameter into the handler.
+foreach (array('tle_weather' => 'weather', 'tle_amateur' => 'amateur', 'tle_amsat' => 'amsat', 'tle_satnogs' => 'satnogs') as $id => $source) {
+    T::same($source, $legacy[$id]['params']['source'], $id . ' carries source=' . $source);
+    T::same('SatApi\\Api\\Endpoints\\Tle', $legacy[$id]['route']['handler'][0], $id . ' routes to the Tle endpoint');
+    T::same('source', $legacy[$id]['route']['handler'][1], $id . ' routes to Tle::source');
+}
 
 T::group('AMSAT status parsing');
 
@@ -478,7 +530,12 @@ T::same('27607', $mergedMap['SO-50'], 'static fallback fills the gaps');
 
 T::group('Configuration');
 
-T::same('2.2.0', Config::get('service.version'), 'service version exposed');
+// Assert the SHAPE, not a literal: a hardcoded version string turns every
+// release into a failing test and hides real regressions in the noise.
+T::truthy(
+    (bool) preg_match('/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/', (string) Config::get('service.version')),
+    'service version is a semantic version (' . Config::get('service.version') . ')'
+);
 T::truthy(count(Config::sources()) >= 7, 'seven upstream sources configured');
 T::same(10800, Config::get('sources.weather.ttl'), 'CelesTrak cache TTL preserved (3h)');
 T::same(43200, Config::get('sources.amsat.ttl'), 'AMSAT cache TTL preserved (12h)');
@@ -488,5 +545,28 @@ T::same('43017', Config::get('norad_fallback.AO-91'), 'AO-91 NORAD id corrected 
 T::same('14781', Config::get('norad_fallback.UO-11'), 'UO-11 NORAD id corrected (was 07530)');
 T::truthy(Config::get('http.verify_tls') === true, 'TLS verification is enabled by default');
 T::same(false, Config::get('cache.redis.enabled'), 'runtime config overrides are visible to the application');
+
+// --- security header ownership ---------------------------------------------
+// The v2.2 defect: nginx (site config) AND PHP both sent
+// X-Content-Type-Options, so every dynamic response carried it twice.
+// Exactly one owner is expressible through this knob.
+T::same('app', Config::get('http.security_headers_owner'), 'security headers have a single owner');
+T::truthy(
+    in_array(Config::get('http.security_headers_owner'), array('app', 'nginx', 'both'), true),
+    'security header owner is one of app|nginx|both'
+);
+
+// --- metrics sink configuration --------------------------------------------
+T::truthy(
+    in_array(Config::get('metrics.driver'), array('file', 'redis', 'both'), true),
+    'metrics driver is one of file|redis|both'
+);
+T::same(9, Config::get('metrics.redis.db'), 'metrics use a dedicated Redis database, not the cache one');
+T::same(8, Config::get('cache.redis.db'), 'cache still uses its own Redis database');
+T::truthy(
+    Config::get('metrics.redis.db') !== Config::get('cache.redis.db'),
+    'metrics and cache never share a Redis database'
+);
+T::same(90, Config::get('metrics.mysql.retention_days'), 'MySQL retention expressed in days');
 
 exit(T::summary());

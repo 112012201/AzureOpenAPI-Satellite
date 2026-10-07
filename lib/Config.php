@@ -37,7 +37,7 @@ final class Config
             'service' => array(
                 'name'        => 'Satellite Data API',
                 'slug'        => 'satellite-api',
-                'version'     => '2.2.0',
+                'version'     => '3.0.0',
                 'api_version' => 'v1',
                 'description' => 'Unified TLE and satellite metadata proxy (CelesTrak, AMSAT, SatNOGS).',
                 'homepage'    => 'https://satellite.api.authskin.xyz',
@@ -62,7 +62,7 @@ final class Config
             ),
 
             'http' => array(
-                'user_agent'  => 'SatelliteDataAPI/2.2 (+https://satellite.api.authskin.xyz)',
+                'user_agent'  => 'SatelliteDataAPI/3.0 (+https://satellite.api.authskin.xyz)',
                 'verify_tls'  => true,
                 'ca_bundle'   => '',
                 'retries'     => 2,
@@ -70,6 +70,19 @@ final class Config
                 'max_bytes'   => 33554432,
                 'timeout'     => 20,
                 'connect_timeout' => 8,
+                // Who emits the four security headers on dynamic responses.
+                // The application owns them because it is the only source that
+                // covers `php -S` and Apache as well as nginx, and because a
+                // server-level nginx group is applied twice to fastcgi responses
+                // (measured: panel vhost copy removed => count 2 -> 1).
+                //   'app'   (default) - this process sends all four.
+                //   'nginx'           - this process sends none. Verified to
+                //                       leave dynamic responses with zero
+                //                       security headers under the current
+                //                       nginx config, so change it only together
+                //                       with conf/bt-panel-rewrite.conf.
+                //   'both'            - v2.2 defect, duplicates. Rollback only.
+                'security_headers_owner' => 'app',
             ),
 
             'cors' => array(
@@ -101,7 +114,33 @@ final class Config
             ),
 
             'metrics' => array(
-                'file' => self::$root . '/data/metrics.json',
+                // Telemetry sink selection: 'file' | 'redis' | 'both'.
+                // See lib/Metrics/Driver.php for the driver contract.
+                'driver' => 'both',
+                'file'   => self::$root . '/data/metrics.json',
+                'redis'  => array(
+                    'enabled' => true,
+                    // A dedicated logical database keeps counter writes off the
+                    // cache database, so a metrics burst cannot evict datasets.
+                    'db'      => 9,
+                    'prefix'  => 'satapi:m:',
+                    'timeout' => 1.0,
+                ),
+                'mysql'  => array(
+                    // Historical rollups. Disabled until credentials are given
+                    // via SATAPI_MYSQL_* or conf/config.php; when disabled the
+                    // metrics endpoints degrade instead of failing.
+                    'enabled'        => false,
+                    'host'           => '127.0.0.1',
+                    'port'           => 3306,
+                    'database'       => 'satapi',
+                    'user'           => '',
+                    'password'       => '',
+                    'charset'        => 'utf8mb4',
+                    'retention_days' => 90,
+                ),
+                // Redis minute buckets expire after this many seconds (48h).
+                'redis_retention' => 172800,
             ),
 
             'admin' => array(
@@ -245,6 +284,20 @@ final class Config
             'SATAPI_LOG_DIR'              => 'logs.dir',
             'SATAPI_VERIFY_TLS'           => 'http.verify_tls',
             'SATAPI_CA_BUNDLE'            => 'http.ca_bundle',
+            'SATAPI_SECURITY_HEADERS_OWNER' => 'http.security_headers_owner',
+            'SATAPI_METRICS_DRIVER'       => 'metrics.driver',
+            'SATAPI_METRICS_FILE'         => 'metrics.file',
+            'SATAPI_METRICS_REDIS_ENABLED' => 'metrics.redis.enabled',
+            'SATAPI_METRICS_REDIS_DB'     => 'metrics.redis.db',
+            'SATAPI_METRICS_REDIS_PREFIX' => 'metrics.redis.prefix',
+            'SATAPI_METRICS_REDIS_RETENTION' => 'metrics.redis_retention',
+            'SATAPI_MYSQL_ENABLED'        => 'metrics.mysql.enabled',
+            'SATAPI_MYSQL_HOST'           => 'metrics.mysql.host',
+            'SATAPI_MYSQL_PORT'           => 'metrics.mysql.port',
+            'SATAPI_MYSQL_DATABASE'       => 'metrics.mysql.database',
+            'SATAPI_MYSQL_USER'           => 'metrics.mysql.user',
+            'SATAPI_MYSQL_PASSWORD'       => 'metrics.mysql.password',
+            'SATAPI_MYSQL_RETENTION_DAYS' => 'metrics.mysql.retention_days',
         );
 
         foreach ($map as $env => $path) {

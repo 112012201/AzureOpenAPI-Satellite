@@ -50,6 +50,43 @@ return array(
         'verify_tls' => true,
         'timeout'    => 20,
         'retries'    => 2,
+
+        // Which layer emits the four security headers on dynamic responses.
+        // The application owns them by default: it is the only source that also
+        // covers Apache and `php -S`, and a server-level nginx group is applied
+        // twice to fastcgi responses on this box (measured).
+        //   'app'   (default) — PHP sends all four.
+        //   'nginx'           — PHP sends none. Only correct if the nginx config
+        //                       is changed in step (see the rewrite file's
+        //                       section 6); otherwise dynamic responses end up
+        //                       with no security headers at all.
+        //   'both'            — v2.2 behaviour (duplicates). Rollback only.
+        'security_headers_owner' => 'app',
+    ),
+
+    'metrics' => array(
+        // Request/upstream telemetry. `driver` selects the sink:
+        //   'file'  — single JSON document (works with no Redis/MySQL)
+        //   'redis' — atomic counters in Redis db 9
+        //   'both'  — write to both, read from Redis with file as fallback
+        'driver' => 'both',
+        'redis'  => array(
+            'db'     => 9,
+            'prefix' => 'satapi:m:',
+        ),
+        // Historical rollups go to MySQL. Leave user/password empty to disable.
+        'mysql' => array(
+            'enabled'   => false,
+            'host'      => '127.0.0.1',
+            'port'      => 3306,
+            'database'  => 'satapi',
+            'user'      => '',
+            'password'  => '',   // prefer SATAPI_MYSQL_PASSWORD
+            'charset'   => 'utf8mb4',
+            'retention_days' => 90,
+        ),
+        // Redis minute buckets live this long (seconds).
+        'redis_retention' => 172800,
     ),
 
     'legacy' => array(

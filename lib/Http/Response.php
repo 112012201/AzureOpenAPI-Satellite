@@ -224,11 +224,19 @@ final class Response
         }
 
         $defaults = array(
-            'X-Content-Type-Options' => 'nosniff',
-            'Referrer-Policy'        => 'strict-origin-when-cross-origin',
             'X-Service-Version'      => (string) Config::get('service.version', ''),
             'Cache-Control'          => $defaultCache,
         );
+
+        // Security headers are only emitted here when this process owns them.
+        // Under nginx the site config already sends nosniff / Referrer-Policy /
+        // X-Frame-Options / Permissions-Policy, and emitting them a second time
+        // makes the response carry the same header twice — scanners flag that as
+        // a misconfiguration. The single owner is chosen by
+        // `http.security_headers_owner` (nginx | app | both).
+        foreach (self::securityHeaders() as $name => $value) {
+            $defaults[$name] = $value;
+        }
 
         foreach ($defaults as $name => $value) {
             if (!isset($headers[$name])) {
@@ -248,6 +256,52 @@ final class Response
         }
 
         return $headers;
+    }
+
+    /**
+     * Security headers this process is responsible for.
+     *
+     * Established by three isolation experiments on the live site, not assumed:
+     *
+     *   1. nginx `add_header` does NOT reach a fastcgi response served through
+     *      `location ~ [^/]\.php` unless it is written at server level or inside
+     *      that location: with the server-level group removed, /v1/meta lost
+     *      X-Content-Type-Options entirely (count 0).
+     *   2. A server-level group applies TWICE to responses that reach PHP but
+     *      once to static responses. Commenting out the panel's vhost copy took
+     *      /v1/meta's X-Content-Type-Options from 2 to 1, which is how the
+     *      duplicate was attributed to the vhost and not to PHP.
+     *   3. An exact-match or prefix location that declares any `add_header` drops
+     *      the whole inherited server-level group: `location = /` carrying only
+     *      Cache-Control measured 0 copies of all four headers.
+     *
+     * Conclusion: the application is the only source that can cover dynamic
+     * responses under nginx AND under Apache / `php -S` with the same code. So
+     * PHP emits all four, and the nginx site config emits none at server level
+     * (it duplicates) while every static location declares the four itself
+     * (because of rule 3).
+     *
+     *   owner = 'app'   (default) -> all four, from this process
+     *   owner = 'nginx' -> array(); only correct for a deployment whose nginx
+     *                      config sends the four on dynamic responses too --
+     *                      otherwise every dynamic response loses them
+     *   owner = 'both'  -> all four; duplicates, kept as a rollback switch
+     *
+     * @return array<string,string>
+     */
+    private static function securityHeaders()
+    {
+        $owner = strtolower((string) Config::get('http.security_headers_owner', 'app'));
+        if ($owner === 'nginx') {
+            return array();
+        }
+
+        return array(
+            'X-Content-Type-Options' => 'nosniff',
+            'Referrer-Policy'        => 'strict-origin-when-cross-origin',
+            'X-Frame-Options'        => 'SAMEORIGIN',
+            'Permissions-Policy'     => 'camera=(), microphone=(), geolocation=()',
+        );
     }
 
     private static function withCors(array $headers)
