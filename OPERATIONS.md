@@ -221,6 +221,33 @@ cp -p /www/wwwroot/satbak/_nginx/<最新备份> /www/server/panel/vhost/rewrite/
 nginx -t && nginx -s reload
 ```
 
+### 5.5 改动 UI 或页面后的必做步骤
+
+```bash
+cd /www/wwwroot/satellite.api.authskin.xyz
+
+# 1) MD3 令牌或页面模板改动后：确认资源版本串已变化（否则用户拿到旧文件）
+curl -s -H 'Host: satellite.api.authskin.xyz' http://127.0.0.1/ | grep -oE '/assets/[a-z]+\.(css|js)\?v=[0-9a-f]+'
+
+# 2) 改了公告条 / 同意弹窗 / 三语词条 后：**必须重新生成错误页**
+#    错误页是构建期生成的静态文件，内嵌了上述内容；不重新生成就会与站内不一致。
+/www/server/php/84/bin/php bin/build-error-page.php
+# 检查是否已过期（CI 可用；过期返回 1）
+/www/server/php/84/bin/php bin/build-error-page.php --check
+
+# 3) 兜底路由与错误页是否仍生效
+for p in /a/b/c /v1/nope /nonexistent-file.txt; do
+  printf '%-22s %s  %s 字节\n' "$p" \
+    "$(curl -s -o /tmp/e.html -w '%{http_code}' -H 'Host: satellite.api.authskin.xyz' http://127.0.0.1$p)" \
+    "$(stat -c%s /tmp/e.html)"
+done
+# 期望：全部 404，且 /tmp/e.html 约 6378 字节（含 error-page__code 标记）
+
+# 4) 兜底 location 的顺序（放错地方会吞掉 /cap/vendor/ 等资源）
+grep -n 'location ~ \^/(?!cap/vendor' conf/bt-panel-rewrite.conf
+# 该行必须是文件里**最后一条**正则 location
+```
+
 ---
 
 ## 6. 数据层运维
@@ -471,13 +498,32 @@ consent.required = false  → 宽松模式：不阻断，只在响应里标注
 
 | # | 问题 | 影响 | 状态 |
 |---|---|---|---|
-| 1 | **nginx 的 `error_page 404 /404.php` 未生效** | 未知路径返回 nginx 内置的 146 字节 404 页，而非三语自定义页 | **未修复**。已排除：缺 `fastcgi_params`、`internal` 指令（两者都改过仍无效）。剩余怀疑：面板 vhost 里更早的 location 在正则竞争中胜出。**修法**：让 `/404.php` 走前端控制器（与其他页面同一条路径），而不是在 rewrite 里再建 fastcgi location。仅影响未知路径的外观 |
-| 2 | **单元测试汇总行不打印** | 测试仍在第一个错误路径处截断（37 行），不输出 `assertions/passed/failed`，且 **exit code 仍为 0**——看起来像通过 | **部分修复**：`Problem::send()` 的 `exit` 已受 `SATAPI_NO_EXIT` 控制，但仍有另一条退出路径未找到。**当前不可依赖其退出码判断通过与否** |
-| 3 | PoW 门禁在客户端 | 不执行 JS 的爬虫可绕过 HTML 门禁 | 设计取舍（见 §7.6） |
-| 4 | 面板「网站→设置→安全」重新保存会恢复重复安全头 | 安全头出现多份 | 需重新注释 vhost 里的 3 行（见 §10） |
-| 5 | `swagger-ui-bundle.js` 内嵌旧服务名 | `vendor` 文件，未改 | 不影响功能 |
-| 6 | `.user.ini` 不可写 | 宝塔文件防篡改（`chattr +i`） | 需 `chattr -i` → 写 → `chattr +i`；**需运维批准** |
-| 7 | CelesTrak 仍在限流 | weather/amateur 走 SpaceTrack 备源 | 自愈中（2 小时静默）。**不要在此期间反复试探** |
+| 1 | ~~nginx `error_page 404` 未生效~~ | ~~未知路径返回无安全头的内置页~~ | **已修复**。四种写法实测均无效，且 nginx 内置错误页**不带任何安全头**；改为**兜底正则 location** 提供 `error.html`（`bin/build-error-page.php` 构建期生成，三语内嵌）。实测 `/a/b/c`、`/v1/nope`、`/docs/nope`、`/nonexistent-file.txt` 全部 404 + 6378 字节自定义页 + 4 个安全头。**改动后必须重新生成**：见 §5.5 |
+| 2 | PoW 门禁在客户端 | 不执行 JS 的爬虫可绕过 HTML 门禁 | 设计取舍（见 §7.6） |
+| 3 | 面板「网站→设置→安全」重新保存会恢复重复安全头 | 安全头出现多份 | 需重新注释 vhost 里的 3 行（见 §10） |
+| 4 | `swagger-ui-bundle.js` 内嵌旧服务名 | `vendor` 文件，未改 | 迁移 GATE 已将其列为**明示豁免**（不是静默跳过） |
+| 5 | `.user.ini` 不可写 | 宝塔文件防篡改（`chattr +i`） | 需 `chattr -i` → 写 → `chattr +i`；**需运维批准** |
+| 6 | CelesTrak 仍在限流 | weather/amateur 走 SpaceTrack 备源 | 自愈中（2 小时静默）。**不要在此期间反复试探** |
+
+### 曾长期隐藏、现已修掉的两类缺陷（值得记住，因为都不会报错）
+
+**测试套件静默截断。** 缺一个 `use SatApi\Support\Pow;` 导致 `Error: Class "Pow" not found`；
+该异常被本站错误处理器转成 **500 JSON 文档**输出，于是**既没有报错信息、也没有汇总行**，
+而 **exit code 仍是 0** —— 一个含 440 条断言的套件看起来"通过"，实际一条都没统计。
+同类问题共三处缺 import。现在 `tests/run.php` 报 **632/632**，退出码可信。
+
+> **排查手法**（值得复用于任何"脚本静默结束"）：用一个 wrapper 把入口包在 try/catch 里并注册
+> `register_shutdown_function`，异常就会现形：
+> ```php
+> try { require '/path/tests/run.php'; }
+> catch (\Throwable $t) { fwrite(STDERR, get_class($t).': '.$t->getMessage().' @ '.$t->getFile().':'.$t->getLine()); }
+> ```
+
+**静态资源改动无法触达已访问用户。** `assets/*.js|css` 带 `immutable, max-age=7d`，
+一旦改版，浏览器会**继续执行旧文件一整周**。这类问题极难察觉：服务器与 CDN 都在发新版，
+只有浏览器在跑旧代码。现在所有资源引用都带**内容哈希查询串**（`?v=<sha256 前 8 位>`），
+由 `HomePage::assetQueryFor()` 计算；改动即换 URL，无需刷 CDN。
+
 
 ---
 
@@ -546,6 +592,12 @@ done
 | 2026-10-07 | Cap PoW 部署（固定 digest、零外联、fail-open） | 浏览器实测 challenge→redeem→verify-pow 全通 |
 | 2026-10-07 | EdgeOne 规则修正（仅目标域名） | 18/18 校验；其他 5 条规则逐条比对未变 |
 | 2026-10-07 | MD3 三级令牌 + 组件层接入 | 三页加载顺序 tokens→app→md3；三条门禁仍完好 |
+| 2026-10-07 | UI 改为**扁平 + 直角**（`--shape-*` 全 0、`--elev-*` 全 none） | `border-radius: 0px` / `box-shadow: none` 实测；375/768/1024/1440 无横向溢出 |
+| 2026-10-07 | 加载动画实现（此前几乎不可见） | 最小驻留 900ms；四格 + 扫描线 + 进度条；`prefers-reduced-motion` 下停止 |
+| 2026-10-07 | 错误页改为构建期生成的静态页 | 5 条未匹配路径全部 404 + 6378B 自定义三语页 + 4 安全头 |
+| 2026-10-07 | 修复测试套件静默截断（缺 `use` → 500 JSON → exit 0） | 断言 447 → **632/632**，退出码恢复可信 |
+| 2026-10-07 | 修复 `/legal`、`/privacy`、`/terms` 未被 PoW 豁免 | 门禁不能挡住"被要求同意的文档" |
+| 2026-10-07 | 首页数据修正 | 过时的 `3 h cache TTL` → `6 h refresh interval`；无可测依据的 `99.9% cache hit` → 实时 `service uptime` |
 
 ---
 

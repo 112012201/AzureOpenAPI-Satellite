@@ -130,36 +130,47 @@ code, kbd, pre, samp { font-family: var(--font-mono); font-size: 0.9em; }
 .grid > *, .features__grid > *, .legal__cards > * { background: var(--surface); border: 0; }
 
 /* --- stat-led opening --------------------------------------------------- */
-.statled {
+/* The markup for this already existed as `.stats` with `.stats__value` /
+   `.stats__label`; only the styling was missing, so the flat square treatment is
+   applied to those names rather than introducing a parallel set. */
+.statled,
+.stats {
   display: grid;
   gap: 1px;
   background: var(--outline-variant);
   border: 1px solid var(--outline-variant);
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   margin: var(--sp-6) 0 var(--sp-8);
+  padding: 0;
+  list-style: none;
 }
-.stat {
+.stat,
+.stats > li {
   background: var(--surface);
   border: 0;
   border-radius: 0;
   padding: var(--sp-4) var(--sp-5);
   min-width: 0;
+  display: block;
 }
-.stat__label {
+.stat__label,
+.stats__label {
+  display: block;
   font-size: var(--t-caption);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--on-surface-variant);
-  margin: 0 0 var(--sp-1);
+  margin: var(--sp-1) 0 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.stat__value {
+.stat__value,
+.stats__value {
+  display: block;
   font-size: clamp(1.5rem, 1.1rem + 1.4vw, 2.1rem);
   font-weight: var(--w-bold);
   line-height: 1.02;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
-  margin: 0;
   color: var(--on-surface);
 }
 .stat__unit { font-size: 0.5em; font-weight: var(--w-medium); color: var(--on-surface-variant); margin-left: 4px; }

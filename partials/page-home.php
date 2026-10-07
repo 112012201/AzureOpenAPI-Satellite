@@ -132,12 +132,17 @@
           <span class="stats__label">upstream sources</span>
         </li>
         <li>
-          <span class="stats__value">3&nbsp;h</span>
-          <span class="stats__label">cache TTL</span>
+          <!-- Was "3 h". The CelesTrak refresh cadence and the group TTL were both
+               raised to 6 h to stop the IP from being rate-limited, so the published
+               number had become wrong. -->
+          <span class="stats__value">6&nbsp;h</span>
+          <span class="stats__label">refresh interval</span>
         </li>
         <li>
-          <span class="stats__value">99.9%</span>
-          <span class="stats__label">cache hit after warmup</span>
+          <!-- Was "99.9% cache hit", which nothing measured. Replaced with a number
+               that is read from the same live endpoint as the rest of this panel. -->
+          <span class="stats__value" data-health-field="uptime">&#8212;</span>
+          <span class="stats__label">service uptime</span>
         </li>
       </ul>
       <p class="stats__hint">
@@ -293,19 +298,19 @@
               <td><span class="badge badge--get">GET</span></td>
               <td><span class="path">/v1/tle</span></td>
               <td>Merged, de-duplicated TLE feed from every upstream source.</td>
-              <td><span class="ttl">3 h</span></td>
+              <td><span class="ttl">6 h</span></td>
             </tr>
             <tr>
               <td><span class="badge badge--get">GET</span></td>
               <td><span class="path">/v1/tle/{source}</span></td>
               <td>Single source: <code>weather</code>, <code>amateur</code>, <code>amsat</code>, <code>satnogs</code> or <code>merged</code>.</td>
-              <td><span class="ttl">3 h</span></td>
+              <td><span class="ttl">up to 12 h</span></td>
             </tr>
             <tr>
               <td><span class="badge badge--get">GET</span></td>
               <td><span class="path">/v1/satellites</span></td>
               <td>SatNOGS satellite catalogue with pagination and field projection.</td>
-              <td><span class="ttl">12 h</span></td>
+              <td><span class="ttl">6 h</span></td>
             </tr>
             <tr>
               <td><span class="badge badge--get">GET</span></td>
@@ -317,7 +322,7 @@
               <td><span class="badge badge--get">GET</span></td>
               <td><span class="path">/v1/amsat/status</span></td>
               <td>AMSAT status report feed for active amateur satellites.</td>
-              <td><span class="ttl">6 h</span></td>
+              <td><span class="ttl">1 h</span></td>
             </tr>
             <tr>
               <td><span class="badge badge--get">GET</span></td>
