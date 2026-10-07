@@ -336,7 +336,12 @@ hr {
   flex-wrap: wrap;
 }
 
-.nav a {
+/* Scoped to DIRECT children. As a descendant selector this matched the header's
+   "Open API docs" button too, and being two classes deep it outranked
+   `.btn--primary` and repainted the label with the muted foreground -- which is the
+   same colour family as the button's own background, so the text became invisible.
+   A navigation rule has no business styling a button. */
+.nav > a {
   display: inline-block;
   padding: 0.4rem 0.6rem;
   border-radius: 8px;
@@ -345,7 +350,7 @@ hr {
   font-weight: 550;
 }
 
-.nav a:hover {
+.nav > a:hover {
   color: var(--fg);
   background: var(--bg-sunken);
   text-decoration: none;
@@ -1061,7 +1066,7 @@ table.data td:first-child { white-space: nowrap; }
     padding-bottom: 0.3rem;
   }
 
-  .nav a { padding: 0.35rem 0.5rem; font-size: 0.88rem; }
+  .nav > a { padding: 0.35rem 0.5rem; font-size: 0.88rem; }
 }
 
 @media (max-width: 420px) {

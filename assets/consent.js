@@ -573,19 +573,27 @@
   }
 
   /**
-   * Mark the document so the page cross-fades in.
+   * Hide the page, then reveal it once the block has finished crossing.
    *
-   * Two classes rather than one so the browser has a style to transition FROM: the starting
-   * state has to be in effect before the ending state is added, or there is nothing to
-   * interpolate.
+   * The order matters and it is the whole fix. The page is put into its hidden state up front,
+   * while it is still covered by the overlay; when the block has filled the viewport the page is
+   * made opaque with NO transition, because it is invisible behind the block; the block alone
+   * then fades, revealing a page that was already fully in place.
+   *
+   * What this replaces: both fades started together, so the page was revealed through a
+   * partially transparent coloured block and the white body behind it washed the screen out.
+   * Measured before the fix -- at t=5792ms the block was at scaleX 0.00 while the page had
+   * already reached opacity 0.069, and by t=6177ms the page was fully opaque with the block only
+   * 61% across.
    */
   function enterCrossfade() {
     var root = document.documentElement;
     root.classList.add('boot-entering');
-    // Force the starting style to take effect. Without this the two class changes land in
-    // the same style recalculation and the fade is skipped.
+    // One reflow so the hidden state is in effect before anything else changes.
     void root.offsetHeight;
-    root.classList.add('boot-entered');
+    window.setTimeout(function () {
+      root.classList.add('boot-entered');
+    }, PHASE_FILL_MS);
   }
 
   function bootText(key, fallback) {
@@ -852,7 +860,69 @@
     runBootTasks();
   }
 
+  /* ------------------------------------------------------- verify page */
+
+  /**
+   * The dedicated verification flow, used on `/verify` only.
+   *
+   * A page that exists to be verified does not also need a loading screen, a consent dialog or an
+   * announcement bar: it needs the challenge, a status line, and a way back. So this path skips
+   * the boot sequence entirely and drives the widget directly.
+   *
+   * On success it navigates to the page the visitor was trying to reach, which the server has
+   * already validated as a site-relative path. On failure it says so and stays put rather than
+   * bouncing the visitor back to a page that will only send them here again.
+   */
+  function runVerifyPage() {
+    var cfg = window.__SATAPI_VERIFY__;
+    if (!cfg) { return false; }
+
+    var status = document.querySelector('[data-verify-status]');
+    var retry = document.querySelector('[data-verify-retry]');
+    var strings = cfg.strings || {};
+    var busy = false;
+
+    function say(message) {
+      if (!status || !message) { return; }
+      var active = status.querySelector('.i18n.is-active');
+      if (active) { active.textContent = message; return; }
+      status.textContent = message;
+    }
+
+    if (!cfg.enabled) {
+      // The gate is off, so there is nothing to satisfy: go where they asked.
+      say(strings.done || 'Verified. Returning…');
+      window.location.replace(cfg.returnTo || '/');
+      return true;
+    }
+
+    function attempt() {
+      if (busy) { return; }
+      busy = true;
+      say(strings.working || 'Completing the check…');
+      loadCapScript(cfg.endpoint)
+        .then(function () { return solveWithCap(cfg.endpoint, cfg.siteKey); })
+        .then(function (token) { return verifyPow(token); })
+        .then(function () {
+          say(strings.done || 'Verified. Returning…');
+          // A replace, not an assign: the verification page should not sit in the history for
+          // the back button to land on and immediately re-verify.
+          window.location.replace(cfg.returnTo || '/');
+        })
+        .catch(function (error) {
+          busy = false;
+          say((strings.failed || 'The check could not be completed.') + ' (' + (error && error.message ? error.message : 'error') + ')');
+        });
+    }
+
+    if (retry) { retry.addEventListener('click', attempt); }
+    attempt();
+    return true;
+  }
+
   function init() {
+    // The verify page is a flow step, not a destination: no boot screen, no dialogs.
+    if (runVerifyPage()) { return; }
     try { initLanguageSwitch(); } catch (e) { /* a broken switcher must not stop the page */ }
     try { initAnnouncement(); } catch (e) { }
     try { initConsent(); } catch (e) { }

@@ -73,7 +73,9 @@ final class Pow
         // configured exempt list names `/legal/privacy.html`, and an exact comparison
         // therefore missed exactly the pages the gate exists to make readable: a gate
         // that hides the document you are asked to agree to is a wall, not a gate.
-        if (in_array($normalised, array('/legal', '/privacy', '/terms'), true)) {
+        if (in_array($normalised, array('/legal', '/privacy', '/terms', '/verify'), true)) {
+            // /verify is where a visitor is SENT to satisfy the gate. Challenging it would make
+            // the gate impossible to satisfy, which is the one failure mode a gate must not have.
             return true;
         }
         if (preg_match('#\.[a-z0-9]{2,5}$#i', $normalised)) {

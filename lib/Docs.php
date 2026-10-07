@@ -76,7 +76,13 @@ final class Docs
         // reach a browser that already holds the previous copy. docs.html is the authored
         // source, so the rewrite is a targeted replacement of the literal hrefs rather
         // than a template change.
-        foreach (array('tokens.css', 'app.css', 'md3.css', 'app.js', 'consent.js') as $asset) {
+        //
+        // swagger-theme.css is in this list because it was NOT, and that cost a debugging pass:
+        // the theme was edited, the server served the new text, and the browser kept applying the
+        // cached stylesheet -- so a working fix looked like it had done nothing. The vendored
+        // Swagger assets sit at the site root rather than under /assets/, so they are versioned by
+        // a second pass. Everything this page loads is covered now.
+        foreach (array('tokens.css', 'app.css', 'md3.css', 'app.js', 'consent.js', 'swagger-theme.css') as $asset) {
             $q = \SatApi\HomePage::assetQueryFor($asset);
             if ($q === '') {
                 continue;
@@ -84,6 +90,13 @@ final class Docs
             foreach (array('/assets/', './assets/') as $prefix) {
                 $html = str_replace($prefix . $asset . '"', $prefix . $asset . $q . '"', $html);
             }
+        }
+        foreach (array('swagger-ui.css', 'swagger-ui-bundle.js', 'swagger-ui-standalone-preset.js') as $asset) {
+            $q = \SatApi\HomePage::assetQueryFor($asset);
+            if ($q === '') {
+                continue;
+            }
+            $html = str_replace('./' . $asset . '"', './' . $asset . $q . '"', $html);
         }
 
         // The shared shell carries the announcement bar, the consent dialog, the

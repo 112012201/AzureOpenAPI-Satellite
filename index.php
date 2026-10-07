@@ -43,6 +43,10 @@ if (\SatApi\HomePage::handles($request)) {
     \SatApi\HomePage::render($request);
     exit;
 }
+if (\SatApi\VerifyPage::handles($request)) {
+    \SatApi\VerifyPage::render($request);
+    exit;
+}
 if (\SatApi\Docs::handles($request)) {
     \SatApi\Docs::render($request);
     exit;

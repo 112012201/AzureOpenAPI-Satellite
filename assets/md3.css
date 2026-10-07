@@ -123,11 +123,21 @@ code, kbd, pre, samp { font-family: var(--font-mono); font-size: 0.9em; }
 .grid, .features__grid, .legal__cards {
   display: grid;
   gap: 1px;                     /* 1px gutters make the grid read as ruled cells */
-  background: var(--outline-variant);
-  border: 1px solid var(--outline-variant);
+  /* Transparent, not the outline colour. With a coloured backdrop, every cell the children do
+     not fill shows as a grey slab -- which is exactly what an uneven card count produced: the
+     features grid holds 5 cards across 6 cells, so the last cell rendered as a grey rectangle
+     with nothing in it. The rules between cells are drawn by the children's own borders, so the
+     ruled look survives an empty cell or a short row. */
+  background: transparent;
+  border: 0;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
 }
-.grid > *, .features__grid > *, .legal__cards > * { background: var(--surface); border: 0; }
+.grid > *, .features__grid > *, .legal__cards > * {
+  background: var(--surface);
+  border: 1px solid var(--outline-variant);
+  /* Collapse the doubled hairline where two cells meet, keeping a single rule. */
+  margin: 0 -1px -1px 0;
+}
 
 /* --- stat-led opening --------------------------------------------------- */
 /* The markup for this already existed as `.stats` with `.stats__value` /
@@ -208,8 +218,20 @@ th { background: var(--surface-container); font-weight: var(--w-semibold); font-
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
-.site-header a { color: var(--on-surface-variant); text-decoration: none; }
-.site-header a:hover { color: var(--on-surface); }
+/*
+ * Header links, minus the buttons.
+ *
+ * The exclusion is the fix, and the reason is cascade order rather than specificity: this rule
+ * and `.btn--primary` are both (0,1,1), so the later one in the sheet wins -- and md3.css loads
+ * after app.css, so this repainted the button's label with the muted surface variant, which on
+ * the accent background is nearly the same value as the fill. Confirmed with the browser's own
+ * matched-rules list, where `.site-header a` sat last among 19 colour declarations.
+ *
+ * A header rule has no business colouring a button, so the button class is excluded rather than
+ * fought with `!important`.
+ */
+.site-header a:not(.btn) { color: var(--on-surface-variant); text-decoration: none; }
+.site-header a:not(.btn):hover { color: var(--on-surface); }
 
 /* --- announcement bar: full-bleed block, square ------------------------ */
 .announce { border-bottom: 1px solid var(--outline-variant); border-radius: 0; }
@@ -503,7 +525,17 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   color: var(--warn);
 }
 .boot__error[hidden] { display: none; }
-[data-cap-host] { position: relative; z-index: 1; }
+/* The challenge widget is a fixed control, not part of the document flow.
+   It used to sit wherever the overlay happened to be in the markup, which put it at
+   y=6115px -- far below the fold, next to the page footer, so a visitor who was asked to
+   verify could not see the thing asking. Pinned to the lower-left corner where the
+   reference shows its Cap badge. */
+[data-cap-host] {
+  position: fixed;
+  left: var(--sp-4);
+  bottom: var(--sp-4);
+  z-index: 210;
+}
 
 /* --- the fill: start, accelerate, stop, then fade ---------------------- */
 /* Four phases on one element, which is how the reference does it -- the block scales from
@@ -539,20 +571,33 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   to { opacity: 0; }
 }
 
-/* The overlay's own fade, delayed until the block has covered the screen. Same structure
-   and near-identical timing as the reference (`.4s ease-out .5s`), expressed as the last
-   phase of the fill rather than as a separate beat. */
+/*
+ * The hand-off, in three steps that must not overlap.
+ *
+ *   A  the block fills the viewport            (boot-fill, 760ms)
+ *   B  the page is made fully opaque UNDER it  (no transition: it is invisible behind the block)
+ *   C  the block fades away                    (400ms)
+ *
+ * The order is the whole point, and getting it wrong is what produced the bright wash the
+ * operator reported. The measurement that showed it: at t=5792ms the block was still at
+ * scaleX 0.00 while the page had already reached opacity 0.069, and by t=6177ms the page was
+ * fully opaque with the block only 61% across. The page was being revealed THROUGH a
+ * semi-transparent coloured block, so the white body behind it showed through and the screen
+ * washed out before settling.
+ *
+ * There is no cross-fade to get wrong now: the page never fades, because a fade is what put
+ * two semi-transparent layers on top of each other. It is set opaque while hidden and the
+ * block alone fades.
+ */
 .boot--done {
   opacity: 0;
-  transition: opacity 400ms cubic-bezier(0, 0, 0.58, 1) 500ms;
+  /* 760ms (the fill) + 24ms of slack, then 400ms of fade. */
+  transition: opacity 400ms cubic-bezier(0, 0, 0.58, 1) 784ms;
 }
-
-/* The page cross-fades in over the same window. */
+/* Step B: alive, but hidden behind the block. */
 html.boot-entering body { opacity: 0; }
-html.boot-entering.boot-entered body {
-  opacity: 1;
-  transition: opacity 400ms cubic-bezier(0, 0, 0.58, 1);
-}
+/* Step B: opaque, with no transition, because the block is still covering everything. */
+html.boot-entering.boot-entered body { opacity: 1; transition: none; }
 
 /* --- sizing only: the axis never changes -------------------------------- */
 @media (orientation: portrait) {
@@ -578,9 +623,74 @@ html.boot-entering.boot-entered body {
      instant clear is the reduced-motion equivalent of the same event. */
   .boot--done { transition: opacity 120ms linear; }
   .boot--leaving::after { animation-duration: 1ms; }
-  html.boot-entering.boot-entered body { transition: none; }
   .btn { transition: none; }
 
+/* --- locale spans: one visible at a time, on every page ------------------ */
+/* This is a utility, not a page rule: the three-locale block appears in the shell, on the verify
+   page and on the error page, and the rule that hides the inactive ones lived only in app.css.
+   The verify page renders all three and relies on this to show one, so it is restated here where
+   every page is guaranteed to have it. */
+.i18n[hidden] { display: none !important; }
+.i18n { display: inline; }
+/* --- the dedicated verification page (/verify) --------------------------- */
+/* A flow step rather than a destination: one card, the challenge slot, a status line and two
+   ways out. It carries no announcement bar and no consent dialog on purpose -- a visitor who has
+   been sent here to satisfy a gate should have exactly one thing to do. */
+.verify-page {
+  background: var(--surface);
+  min-height: 100vh;
+  display: grid;
+  align-content: center;
+}
+.verify-page__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  align-items: center;
+  padding: var(--sp-10) var(--gutter);
+}
+.verify-page__card {
+  width: min(560px, 100%);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  padding: var(--sp-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.verify-page__card h1 { margin: 0; font-size: var(--t-headline); }
+/*
+ * On this page the widget belongs IN the card, not pinned to the viewport corner.
+ *
+ * The corner pinning is a global rule on the host element, and a later, more specific rule here
+ * was not enough to undo it -- the computed position stayed `fixed` and the card's slot rendered
+ * empty while the widget floated in the corner. The override is therefore explicit per property
+ * rather than a single `position` declaration competing on order.
+ */
+.verify-page__slot,
+.verify-page [data-cap-host],
+.verify-page cap-widget {
+  position: static !important;
+  left: auto !important;
+  bottom: auto !important;
+  z-index: auto !important;
+  min-height: 66px;
+  display: flex;
+  align-items: center;
+  margin-top: var(--sp-2);
+}
+.verify-page__status {
+  margin: 0;
+  font-size: var(--t-label);
+  color: var(--on-surface-variant);
+}
+.verify-page__actions {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin: var(--sp-2) 0 0;
+}
+.verify-page__note { font-size: var(--t-caption); max-width: 560px; text-align: center; }
 /* --- focus visibility --------------------------------------------------- */
 :focus-visible { outline: none; box-shadow: var(--focus-ring) !important; }
 
@@ -617,7 +727,6 @@ html.boot-entering.boot-entered body {
      dropped because there is no motion to soften. */
   .boot--done { transition: opacity 120ms linear; }
   .boot--done::after { animation-duration: 1ms; }
-  html.boot-entering.boot-entered body { transition: none; }
   .btn { transition: none; }
   *, *::before, *::after {
     animation-duration: 0.001ms !important;

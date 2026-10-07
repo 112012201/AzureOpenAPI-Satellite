@@ -140,12 +140,25 @@ final class HomePage
         if (array_key_exists($relative, $cache)) {
             return $cache[$relative];
         }
-        $path = __DIR__ . '/../assets/' . ltrim($relative, '/');
-        $cache[$relative] = is_file($path)
-            ? '?v=' . substr(hash('sha256', (string) file_get_contents($path)), 0, 8)
-            : '';
+        // Two roots, because the page loads assets from both. The site's own files live in
+        // assets/; the vendored Swagger build sits at the document root next to docs.html.
+        // Only assets/ was searched before, so asking for a vendored file returned '' and the
+        // link was left unversioned -- which is exactly what let a browser keep serving the
+        // previous copy of a file that had changed on disk.
+        $candidates = array(
+            __DIR__ . '/../assets/' . ltrim($relative, '/'),
+            __DIR__ . '/../' . ltrim($relative, '/'),
+        );
+        $found = '';
+        foreach ($candidates as $path) {
+            if (is_file($path)) {
+                $found = '?v=' . substr(hash('sha256', (string) file_get_contents($path)), 0, 8);
+                break;
+            }
+        }
+        $cache[$relative] = $found;
 
-        return $cache[$relative];
+        return $found;
     }
 
     /**

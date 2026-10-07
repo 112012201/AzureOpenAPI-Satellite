@@ -74,6 +74,48 @@
     background: var(--sw-accent);
 }
 
+/*
+ * The title, its wrapper and the server row must carry the site's font stack explicitly.
+ *
+ * They were listed in the colour block above but never given a family, so they fell through to
+ * the browser default -- a serif -- which is why the heading rendered in the wrong face inside
+ * its own framed box. Swagger's own stylesheet does not set a family on these either, so there
+ * was nothing to inherit from.
+ */
+/*
+ * The selector has to name `main`, because that is where the title actually lives.
+ *
+ * Measured DOM: div.info (depth 9, font correctly inherited) contains only the description,
+ * while h1.title is a SIBLING of it inside main (depth 11, font "sans-serif"). So
+ * `.swagger-ui .info .title` matched nothing at all -- the rule was present, valid and inert,
+ * which is the same class of fault as the nginx `error_page` that never fired.
+ */
+.swagger-ui,
+.swagger-ui *,
+.swagger-ui .information-container,
+.swagger-ui .information-container *,
+.swagger-ui main,
+.swagger-ui main *,
+.swagger-ui .info,
+.swagger-ui .info *,
+.swagger-ui .info .title,
+.swagger-ui main h1.title {
+    font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif) !important;
+}
+/* Code-ish fragments inside the info block keep the mono stack. */
+.swagger-ui main code,
+.swagger-ui main pre,
+.swagger-ui .info code,
+.swagger-ui .info pre {
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace) !important;
+}
+/* The base-url line reads as a label, not as prose. */
+.swagger-ui .info .title small,
+.swagger-ui .info .title .base-url {
+    font-weight: 500;
+    letter-spacing: 0.01em;
+}
+
 .swagger-ui .info,
 .swagger-ui .scheme-container,
 .swagger-ui .opblock-tag-section,
