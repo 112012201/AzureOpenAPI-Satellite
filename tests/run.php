@@ -435,7 +435,7 @@ T::same('HIT', array_key_first($summary['endpoints']['unit_test']['cache']), 'ca
 T::group('Routing');
 
 $index = \SatApi\Api\Router::index();
-T::same(12, count($index), 'twelve v1 routes are indexed');
+T::same(14, count($index), 'fourteen v1 routes are indexed');
 $paths = array();
 foreach ($index as $entry) {
     $paths[] = $entry['path'];

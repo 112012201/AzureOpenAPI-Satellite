@@ -251,6 +251,18 @@ final class Response
             $headers = self::withCors($headers);
         }
 
+        // Advertise a pending legal acknowledgement on every response, including
+        // errors, so a failed request still points at the reason. Absent once the
+        // client has acknowledged; absent in enforcing mode too, because there the
+        // 451 body carries the requirement.
+        $consent = \SatApi\Support\Consent::current();
+        if (is_array($consent) && empty($consent['accepted']) && !isset($headers['X-Consent-Required'])) {
+            $value = \SatApi\Support\Consent::headerValue($consent);
+            if ($value !== '') {
+                $headers['X-Consent-Required'] = $value;
+            }
+        }
+
         if (!isset($headers['Vary'])) {
             $headers['Vary'] = 'Accept, Accept-Encoding';
         }

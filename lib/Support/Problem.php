@@ -131,6 +131,10 @@ final class Problem
             'rate_limited'         => 'Client exceeded the configured request budget.',
             'payload_too_large'    => 'Request body exceeded the accepted size.',
             'unauthorized'         => 'Missing or invalid admin credentials.',
+            // RFC 7725. Emitted only while consent.required is on; the lenient
+            // default advertises the requirement through meta.consent instead.
+            'consent_required'     => 'The privacy policy and terms of service have not been acknowledged.',
+            'pow_failed'           => 'The proof-of-work token was missing, invalid or expired.',
             'internal_error'       => 'Unexpected server-side failure.',
         );
     }

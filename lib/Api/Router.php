@@ -4,7 +4,9 @@ namespace SatApi\Api;
 
 use SatApi\Http\Request;
 use SatApi\Http\Response;
+use SatApi\Config;
 use SatApi\Logger;
+use SatApi\Support\Consent;
 use SatApi\Support\Metrics;
 use SatApi\Support\Problem;
 use SatApi\Support\RateLimit;
@@ -34,6 +36,10 @@ final class Router
         if ($request->method() === 'OPTIONS') {
             Response::noContent(204);
 
+            return;
+        }
+
+        if (!self::enforceConsent($request)) {
             return;
         }
 
@@ -77,6 +83,61 @@ final class Router
         }
 
         self::run($match['route'], $match['params'], $request);
+    }
+
+    /**
+     * Evaluate the privacy/terms acknowledgement once per request.
+     *
+     * Returns false when the request has been answered with 451 and dispatch must
+     * stop. The verdict is stashed so `meta.consent` and `X-Consent-Required` are
+     * rendered from the same evaluation instead of each endpoint re-parsing.
+     *
+     * Enforcement is off by default: publishing a legal notice must not break every
+     * existing integration on its own. `consent.required` (or
+     * SATAPI_CONSENT_REQUIRED=1) turns it on.
+     *
+     * @return bool
+     */
+    private static function enforceConsent(Request $request)
+    {
+        $verdict = Consent::describe($request);
+        Consent::setCurrent($verdict);
+
+        if ($verdict['accepted'] || Consent::isExemptPath($request->path())) {
+            return true;
+        }
+
+        if (!$verdict['required']) {
+            // Lenient mode: the response proceeds and advertises the requirement
+            // through meta.consent and X-Consent-Required. Nothing is blocked.
+            return true;
+        }
+
+        if ($verdict['state'] === Consent::STATE_INVALID) {
+            Problem::send(
+                400,
+                'Bad Request',
+                (string) $verdict['error'],
+                'bad_request',
+                array('parameter' => 'consent', 'allow' => (array) Config::get('consent.items', array())),
+                array('Cache-Control' => 'no-store')
+            );
+
+            return false;
+        }
+
+        Problem::send(
+            451,
+            'Unavailable For Legal Reasons',
+            'This API requires acknowledgement of its privacy policy and terms of service. '
+                . 'Add ?consent=' . implode(',', (array) Config::get('consent.items', array()))
+                . '&consent_version=' . (int) $verdict['version'] . ' to your requests.',
+            'consent_required',
+            Consent::problemExtra($verdict),
+            array('Cache-Control' => 'no-store')
+        );
+
+        return false;
     }
 
     /**
@@ -186,9 +247,12 @@ final class Router
         $catalog = 'SatApi\\Api\\Endpoints\\Catalog';
         $amsat = 'SatApi\\Api\\Endpoints\\AmsatStatus';
         $system = 'SatApi\\Api\\Endpoints\\System';
+        $consent = 'SatApi\\Api\\Endpoints\\Consent';
 
         self::$routes = array(
             // ---------- v1 ----------
+            array('pattern' => '#^/v1/consent/status$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($consent, 'status'), 'endpoint' => 'consent_status'),
+            array('pattern' => '#^/v1/consent/verify-pow$#', 'methods' => array('POST'), 'handler' => array($consent, 'verifyPow'), 'endpoint' => 'consent_verify_pow'),
             array('pattern' => '#^/v1/tle$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($tle, 'merged'), 'endpoint' => 'tle_merge', 'text' => true, 'bucket' => 'tle'),
             array('pattern' => '#^/v1/tle/(?<source>weather|amateur|amsat|satnogs)$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($tle, 'source'), 'endpoint' => 'tle_source', 'text' => true, 'bucket' => 'tle'),
             array('pattern' => '#^/v1/satellites$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($catalog, 'satellites'), 'endpoint' => 'satnogs_satellites', 'bucket' => 'catalog'),

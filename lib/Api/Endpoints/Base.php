@@ -30,6 +30,15 @@ abstract class Base
             'elapsed_ms'  => (int) round((microtime(true) - (defined('SATAPI_START') ? SATAPI_START : microtime(true))) * 1000),
         );
 
+        // Attach the acknowledgement state so an interactive client learns about the
+        // requirement from the payload it is already parsing, without a second call.
+        // Emitted only while unacknowledged, so a compliant client's meta block is
+        // byte-identical to what it was before this feature existed.
+        $consent = \SatApi\Support\Consent::current();
+        if (is_array($consent) && empty($consent['accepted'])) {
+            $meta['consent'] = \SatApi\Support\Consent::payload($consent);
+        }
+
         return array_merge($meta, $extra);
     }
 
