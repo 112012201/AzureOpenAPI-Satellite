@@ -176,11 +176,26 @@ $bootBlock = static function ($key, $tag = 'span', $attrs = '') use ($bootTAll, 
 </div>
 <?php endif; ?>
 <div class="boot" data-boot data-pow-enabled="<?php echo $powStatus['enabled'] ? '1' : '0'; ?>" data-pow-endpoint="<?php echo htmlspecialchars((string) $powStatus['endpoint'], ENT_QUOTES, 'UTF-8'); ?>" data-pow-sitekey="<?php echo htmlspecialchars((string) $powStatus['site_key'], ENT_QUOTES, 'UTF-8'); ?>">
+  <?php /* Structure follows the Endfield loading screen: a dark full-bleed field, a
+           centred mark, and a hairline progress track with an oversized percentage
+           readout beside it. The figure is the real stage value, not a decoration. */ ?>
+  <span class="boot__bg" aria-hidden="true"></span>
   <div class="boot__mark" aria-hidden="true">
-    <span class="boot__blocks"><i></i><i></i><i></i><i></i></span>
+    <span class="boot__glyph"></span>
   </div>
   <p class="boot__title"><?php echo $bootBlock('loading.title'); ?></p>
-  <div class="boot__bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-boot-bar><span data-boot-fill></span></div>
+
+  <div class="boot__meter">
+    <p class="boot__readout" aria-hidden="true">
+      <span class="boot__figure" data-boot-figure>0</span><span class="boot__pct">%</span>
+    </p>
+    <div class="boot__track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+         aria-label="<?php echo htmlspecialchars(I18n::translate($bootCode, 'loading.title', 'Loading'), ENT_QUOTES, 'UTF-8'); ?>"
+         data-boot-bar>
+      <span class="boot__fill" data-boot-fill></span>
+    </div>
+  </div>
+
   <p class="boot__hint" data-boot-hint><?php echo $bootBlock('pow.working'); ?></p>
   <p class="boot__error" data-boot-error hidden>
     <span data-boot-fail hidden><?php echo $bootBlock('pow.unavailable'); ?></span>

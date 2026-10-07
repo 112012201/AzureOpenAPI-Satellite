@@ -183,21 +183,39 @@
     return document.querySelector('[data-boot]');
   }
 
-  // The overlay is shown from the first paint and must stay up long enough to be seen.
+  // The overlay is shown from the first paint and must stay up long enough to be read.
   //
   // Without a floor it flashed for a few hundred milliseconds and effectively did not
   // exist: the challenge answers in about a second when the session is already valid,
   // and when the challenge is switched off the overlay was hidden in the same tick it
-  // was revealed. The animation is the point of the overlay, so it gets a minimum
-  // dwell time instead of racing the network.
-  var BOOT_MIN_MS = 900;
+  // was revealed. The screen is the point of the overlay, so it gets a minimum dwell
+  // instead of racing the network. 1200ms also lets the entrance settle and the wipe
+  // read as a wipe rather than as a flicker.
+  var BOOT_MIN_MS = 1200;
+  // Wipe 560ms, then the fade starts at 560ms and runs 320ms: removing the node at
+  // 940ms would cut the tail, so the removal waits for both to finish. These three
+  // numbers are mirrored in md3.css, and the comment there says so.
+  var BOOT_EXIT_MS = 940;
   var bootShownAt = Date.now();
 
   function setProgress(percent) {
+    var value = Math.max(0, Math.min(100, Math.round(percent)));
     var bar = document.querySelector('[data-boot-bar]');
     var fill = document.querySelector('[data-boot-fill]');
-    if (bar) { bar.setAttribute('aria-valuenow', String(percent)); }
-    if (fill) { fill.style.transform = 'scaleX(' + (percent / 100) + ')'; }
+    var figure = document.querySelector('[data-boot-figure]');
+    if (bar) {
+      bar.setAttribute('aria-valuenow', String(value));
+    }
+    if (fill) {
+      // One custom property drives both orientations: md3.css decides whether it
+      // scales the horizontal bar or the portrait vertical one.
+      fill.style.setProperty('--boot-progress', String(value / 100));
+    }
+    // The figure reports the same stage, so the number on screen is work that
+    // actually happened rather than a timer.
+    if (figure) {
+      figure.textContent = String(value);
+    }
   }
 
   function setHint(text) {
@@ -213,7 +231,7 @@
       el.classList.add('boot--done');
       window.setTimeout(function () {
         if (el.parentNode) { el.parentNode.removeChild(el); }
-      }, 260);
+      }, BOOT_EXIT_MS);
     }, wait);
   }
 

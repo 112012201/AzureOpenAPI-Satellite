@@ -242,73 +242,272 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .legal__notice { background: var(--warn-container); color: var(--warn-ink); border-left: 3px solid var(--warn); border-radius: 0; }
 .boot { background: var(--surface); }
 
-/* --- loading animation -------------------------------------------------- */
-/* Square, geometric, transform-only. Three moving parts, each tied to a real stage of
-   the challenge rather than being decorative:
-     .boot__scan     a 2px rule sweeping the panel while the challenge is fetched
-     .boot__blocks   four cells filling in sequence (indeterminate work)
-     .boot__bar      a definite width driven by setProgress() per stage
-   Nothing animates layout properties, so it cannot force reflow while the page is
-   still settling. */
+/* --- loading screen -----------------------------------------------------
+   Structure and motion follow the Endfield loading screen, which the operator asked
+   for specifically; the values below are the ones read out of its published
+   stylesheet, so the two agree where it matters:
+
+     screen      fixed, full-bleed, dark, z-index above everything
+     backdrop    a full-size image with `filter: blur(8px)`
+     mark        centred, and the only large graphic
+     track       landscape: `left:0; bottom:17.75rem; width:82.4%; height:2.5rem`
+                 portrait:  `left:0; top:0; width:1.25rem; height:100%`
+     readout     an oversized figure beside the track, with its unit smaller
+     exit        the container fades on a delay, and an ::after band wipes across it
+                 with `transform-origin:left; scaleX(0) -> scaleX(1)`
+
+   Two things are deliberately NOT copied. The accent is the site's cyan rather than
+   Endfield's #fffa00, and the corner radius stays 0, because flat and square is this
+   site's rule and the loader is part of the site. The wipe band and the blurred
+   backdrop carry the resemblance; the palette does not have to.
+
+   The figure is the real stage value from setProgress(), so the readout reports work
+   that actually happened rather than animating to a number on a timer.
+   ------------------------------------------------------------------------ */
 .boot {
-  position: fixed; inset: 0; z-index: 70;
-  display: grid; place-content: center; justify-items: center;
-  gap: var(--sp-4); padding: var(--gutter);
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-4);
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  color: #fff;
+  background-color: var(--boot-ink, oklch(0.145 0.009 240));
+  opacity: 1;
 }
 .boot[hidden] { display: none; }
-.boot--done { opacity: 0; transition: opacity var(--dur-long) var(--ease-standard); }
 
-.boot__mark { position: relative; width: 132px; height: 92px; border: 1px solid var(--outline-variant); }
-.boot__mark svg { display: none; }
+/* Blurred full-bleed backdrop, generated rather than an image: it costs no request,
+   cannot 404, and blurs the same way. */
+.boot__bg {
+  position: absolute;
+  inset: -6%;
+  background:
+    radial-gradient(120% 90% at 18% 12%, color-mix(in oklab, var(--primary) 30%, transparent), transparent 62%),
+    radial-gradient(90% 80% at 88% 84%, color-mix(in oklab, var(--secondary) 24%, transparent), transparent 60%),
+    linear-gradient(160deg, oklch(0.22 0.02 240), oklch(0.13 0.01 240));
+  filter: blur(8px);
+  transform: scale(1.04);
+}
 
-/* sweeping rule */
-.boot__mark::after {
-  content: ""; position: absolute; left: 0; top: 0; width: 100%; height: 2px;
+/* Entrance: the content group settles in, so the screen reads as deliberate rather
+   than as a flash of markup. */
+.boot__mark,
+.boot__title,
+.boot__meter,
+.boot__hint,
+.boot__error {
+  position: relative;
+  z-index: 1;
+  animation: boot-rise var(--dur-long) var(--ease-standard) both;
+}
+.boot__title { animation-delay: 60ms; }
+.boot__meter { animation-delay: 120ms; }
+.boot__hint,
+.boot__error { animation-delay: 180ms; }
+
+@keyframes boot-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* The mark: a square frame holding the satellite glyph, drawn in CSS so there is no
+   second asset to keep in sync. */
+.boot__mark {
+  width: 96px;
+  height: 96px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in oklab, #fff 22%, transparent);
+  margin: 0;
+}
+.boot__glyph {
+  position: relative;
+  display: block;
+  width: 26px;
+  height: 26px;
+  border: 2px solid var(--primary);
+  animation: boot-spin 3.6s linear infinite;
+}
+.boot__glyph::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 178%;
+  height: 1px;
+  background: color-mix(in oklab, var(--primary) 60%, transparent);
+  transform: translate(-50%, -50%) rotate(-32deg);
+}
+@keyframes boot-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+/* The four-cell indicator returns, now inside the mark rather than replacing it. */
+.boot__mark::before {
+  content: "";
+  position: absolute;
+  width: 96px;
+  height: 2px;
   background: var(--primary);
-  animation: boot-scan 1.35s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation: boot-scan 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  opacity: 0.8;
 }
 @keyframes boot-scan {
-  0%   { transform: translateY(0); }
-  50%  { transform: translateY(90px); }
-  100% { transform: translateY(0); }
+  0%   { transform: translateY(-46px); }
+  50%  { transform: translateY(46px); }
+  100% { transform: translateY(-46px); }
 }
 
-/* four-cell indeterminate indicator */
-.boot__blocks {
-  position: absolute; inset: 0;
-  display: grid; place-content: center;
-  grid-template-columns: repeat(4, 12px);
-  gap: 6px;
-}
-.boot__blocks i {
-  display: block; width: 12px; height: 12px;
-  background: var(--outline-variant);
-  animation: boot-cell 1.4s steps(2, end) infinite;
-}
-.boot__blocks i:nth-child(1) { animation-delay: 0ms; }
-.boot__blocks i:nth-child(2) { animation-delay: 140ms; }
-.boot__blocks i:nth-child(3) { animation-delay: 280ms; }
-.boot__blocks i:nth-child(4) { animation-delay: 420ms; }
-@keyframes boot-cell {
-  0%, 49%   { background: var(--primary); }
-  50%, 100% { background: var(--outline-variant); }
+.boot__title {
+  margin: 0;
+  font-size: var(--t-subtitle);
+  font-weight: var(--w-medium);
+  letter-spacing: 0.02em;
+  color: color-mix(in oklab, #fff 92%, transparent);
 }
 
-.boot__title { font-size: var(--t-subtitle); font-weight: var(--w-semibold); margin: 0; letter-spacing: -0.01em; }
-.boot__bar { width: min(280px, 72vw); height: 2px; background: var(--outline-variant); border-radius: 0; overflow: hidden; }
-.boot__bar > span {
-  display: block; height: 100%; width: 100%;
-  transform: scaleX(0); transform-origin: left center;
-  background: var(--primary);
+/* --- meter: the oversized figure and the hairline track ------------------ */
+.boot__meter {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-5);
+  width: min(82.4vw, 1100px);
+  margin-top: var(--sp-2);
+}
+.boot__readout {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  margin: 0;
+  line-height: 0.86;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+.boot__figure {
+  font-size: clamp(2.6rem, 1.2rem + 5vw, 4.375rem);
+  font-weight: var(--w-bold);
+  letter-spacing: -0.03em;
+}
+.boot__pct {
+  font-size: clamp(1.6rem, 0.8rem + 2.4vw, 3.25rem);
+  font-weight: var(--w-regular);
+  opacity: 0.75;
+}
+
+.boot__track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 10px;
+  background: color-mix(in oklab, #fff 12%, transparent);
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.boot__fill {
+  position: absolute;
+  inset: 0;
+  /* One custom property, set by setProgress(), drives both orientations. */
+  transform: scaleX(var(--boot-progress, 0));
+  transform-origin: left center;
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--primary) 55%, transparent),
+    var(--primary) 42%,
+    color-mix(in oklab, var(--primary) 70%, transparent));
   transition: transform var(--dur-medium) var(--ease-standard);
 }
-.boot__hint { margin: 0; color: var(--on-surface-variant); font-size: var(--t-label); }
-.boot__hint[hidden] { display: none; }
-.boot__error { margin: 0; display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; color: var(--warn-ink); font-size: var(--t-label); }
-.boot__error[hidden] { display: none; }
-[data-cap-host] { margin-top: var(--sp-2); }
 
-/* --- focus visibility --------------------------------------------------- */
+.boot__hint {
+  margin: 0;
+  font-size: var(--t-label);
+  color: color-mix(in oklab, #fff 62%, transparent);
+  text-align: center;
+}
+.boot__hint[hidden] { display: none; }
+.boot__error {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  justify-content: center;
+  margin: 0;
+  font-size: var(--t-label);
+  color: var(--warn);
+}
+.boot__error[hidden] { display: none; }
+[data-cap-host] { position: relative; z-index: 1; }
+
+/* --- exit: fade on a delay, and wipe a band across the screen ------------ */
+/* The band is an ::after on the container, above the content, scaling from the left
+   edge. This is the detail that makes the screen read as Endfield's rather than as a
+   generic spinner, so it is reproduced rather than approximated. */
+.boot--done {
+  opacity: 0;
+  /* Fade begins only after the wipe has crossed. Kept in a variable so the two
+     timings cannot drift apart. */
+  transition: opacity 320ms var(--ease-standard) 560ms;
+}
+.boot--done::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  transform-origin: left center;
+  transform: scaleX(0);
+  background: linear-gradient(90deg,
+    var(--primary),
+    color-mix(in oklab, var(--primary) 70%, #fff));
+  animation: boot-wipe 560ms cubic-bezier(1, 0, 0.7, 1) forwards;
+}
+@keyframes boot-wipe {
+  0%   { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+/* --- portrait: the track becomes a vertical bar on the left edge --------- */
+@media (orientation: portrait) {
+  .boot__meter {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    flex-direction: column-reverse;
+    align-items: flex-start;
+    gap: 0;
+    margin: 0;
+    background: transparent;
+  }
+  .boot__track {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 5px;
+    height: 100%;
+    flex: none;
+    margin: 0;
+  }
+  .boot__fill {
+    transform: scaleY(var(--boot-progress, 0));
+    transform-origin: center top;
+    background: linear-gradient(180deg,
+      color-mix(in oklab, var(--primary) 55%, transparent),
+      var(--primary) 42%,
+      color-mix(in oklab, var(--primary) 70%, transparent));
+  }
+  /* The readout moves beside the bar instead of inline with it. */
+  .boot__readout {
+    position: absolute;
+    left: 3.125rem;
+    bottom: auto;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+}/* --- focus visibility --------------------------------------------------- */
 :focus-visible { outline: none; box-shadow: var(--focus-ring) !important; }
 
 /* --- misc --------------------------------------------------------------- */
@@ -325,10 +524,12 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 
 /* --- motion: everything decorative stops on request --------------------- */
 @media (prefers-reduced-motion: reduce) {
-  .boot__mark::after { animation: none; }
-  .boot__blocks i { animation: none; background: var(--primary); }
-  .boot__bar > span { transition: none; }
-  .boot--done { transition: none; }
+  .boot__mark::before { animation: none; }
+  .boot__glyph { animation: none; }
+  .boot__fill { transition: none; }
+  .boot--done { transition: opacity 120ms linear; }
+  .boot--done::after { animation-duration: 1ms; }
+  .boot__mark, .boot__title, .boot__meter, .boot__hint, .boot__error { animation: none; }
   .btn { transition: none; }
   *, *::before, *::after {
     animation-duration: 0.001ms !important;

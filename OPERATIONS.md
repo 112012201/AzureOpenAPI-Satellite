@@ -598,6 +598,35 @@ done
 | 2026-10-07 | 修复测试套件静默截断（缺 `use` → 500 JSON → exit 0） | 断言 447 → **632/632**，退出码恢复可信 |
 | 2026-10-07 | 修复 `/legal`、`/privacy`、`/terms` 未被 PoW 豁免 | 门禁不能挡住"被要求同意的文档" |
 | 2026-10-07 | 首页数据修正 | 过时的 `3 h cache TTL` → `6 h refresh interval`；无可测依据的 `99.9% cache hit` → 实时 `service uptime` |
+| 2026-10-07 | 加载画面改为参照 **endfield.hypergryph.com** 的结构 | 全屏暗底 + `blur(8px)` 背景、居中方框标记、超大百分比读数、细进度条；离场为 `::after` 色带 `scaleX(0→1)` 横向擦除（`transform-origin:left`，560ms `cubic-bezier(1,0,.7,1)`）+ 延迟淡出。横屏进度条横向、竖屏自动改为左侧竖条（`orientation` 媒体查询）。**配色用本站品牌青而非参考站的 `#fffa00`，圆角保持 0** |
+
+### 加载画面（`/` 与 `/docs`）
+
+**结构参照 endfield.hypergryph.com**，下列数值是从它公开的样式表里读出来的，两者在关键处一致：
+
+| 项 | 参考站 | 本站 |
+|---|---|---|
+| 容器 | `fixed;100%×100%;#141414;flex 居中;z-index:100` | 同结构，底色取暗令牌 `oklch(0.145 0.009 240)`，`z-index:200` |
+| 背景 | 全屏图 + `filter:blur(8px)` | 全屏 CSS 渐变 + **`filter:blur(8px)`**（无请求、不会 404） |
+| 横屏进度条 | `left:0;bottom:17.75rem;width:82.4%;height:2.5rem` | `width:min(82.4vw,1100px)`，填充 `scaleX` |
+| 竖屏进度条 | `left:0;top:0;width:1.25rem;height:100%`，填充 `scaleY` | `width:5px;height:100%`，填充 **`scaleY`** |
+| 百分比 | `font-size:4.375rem` + `%` `3.25rem` | `clamp(…, 4.375rem)` 上限一致 |
+| 离场 | `opacity 1s 1.4s` + `::after` 色带 `scaleX(0→1)` | 擦除 560ms `cubic-bezier(1,0,.7,1)` + 淡出 320ms（延迟 560ms） |
+
+**两处刻意不同**：accent 用本站品牌青（非 `#fffa00`），圆角保持 0（扁平直角是全站规则）。
+**同步注意**：`assets/consent.js` 里的 `BOOT_EXIT_MS = 940`（560 擦除 + 320 淡出 + 余量）必须与 `md3.css` 的 `.boot--done` 时序一起改，两处注释互相指向。
+
+**数字是真实进度**：`setProgress()` 同时写 `--boot-progress` 与百分比文本，由 Cap 挑战的实际阶段驱动（15 → 45 → 75 → 100），不是定时器模拟。
+
+**验收命令**（离场动画极短，靠重放类名确定性验收，不要靠时序取样）：
+
+```js
+// 在页面控制台执行：重放擦除并在中途查看
+var b = document.querySelector('[data-boot]') || (function(){ var d=document.createElement('div');
+  d.className='boot'; d.setAttribute('data-boot',''); document.body.appendChild(d); return d; })();
+b.classList.add('boot--done');
+getComputedStyle(b, '::after').transform;   // 应看到 matrix(0.x, 0, 0, 1, 0, 0) 逐步变为 1
+```
 
 ---
 

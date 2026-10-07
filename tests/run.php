@@ -1136,7 +1136,29 @@ T::truthy(strpos($tokensCss, 'prefers-color-scheme: dark') !== false, 'a dark th
 T::truthy(strpos($tokensCss, '[data-theme="dark"]') !== false, 'an explicit theme choice overrides the OS');
 $md3Css = (string) @file_get_contents(Config::path('assets/md3.css'));
 T::truthy(strpos($md3Css, 'border-radius: 0 !important') !== false, 'md3.css forces square corners globally');
-T::truthy(strpos($md3Css, 'boot-scan') !== false && strpos($md3Css, 'boot-cell') !== false, 'the loading animation keyframes exist');
+// The loading screen follows the Endfield structure: a dark full-bleed field with a
+// blurred backdrop, a centred mark, an oversized percentage readout, and an exit that
+// wipes a band across the screen. Assert the parts that carry that resemblance, plus
+// the two properties that keep it from being a liability: it does not depend on the
+// challenge script, and it stops on request.
+T::truthy(strpos($md3Css, '@keyframes boot-wipe') !== false, 'the loading screen wipes on exit');
+T::truthy(strpos($md3Css, 'transform-origin: left center') !== false, 'the wipe grows from the left edge');
+T::truthy(strpos($md3Css, '@keyframes boot-rise') !== false, 'the loading content settles in on entry');
+T::truthy(strpos($md3Css, 'filter: blur(8px)') !== false, 'the backdrop is blurred, not flat');
+T::truthy(strpos($md3Css, '@media (orientation: portrait)') !== false, 'the portrait orientation is handled');
+T::truthy(strpos($md3Css, 'boot__figure') !== false, 'the percentage readout is styled');
+// The figure is real work, not a timer: the element exists and setProgress writes to it.
+$consentJs = (string) @file_get_contents(Config::path('assets/consent.js'));
+T::truthy(strpos($consentJs, 'data-boot-figure') !== false, 'setProgress() drives the readout');
+T::truthy(strpos($consentJs, '--boot-progress') !== false, 'setProgress() drives the bar through one custom property');
+T::truthy(strpos($consentJs, 'BOOT_MIN_MS') !== false, 'the screen has a minimum dwell so it is actually seen');
+// The markup starts at 0 and is readable without script: the title, the note and the
+// skip control are server-rendered, so a visitor with JavaScript blocked still gets a
+// usable page rather than a spinner that never ends.
+$shellPhp = (string) @file_get_contents(Config::path('partials/shell.php'));
+T::truthy(strpos($shellPhp, 'data-boot-figure') !== false, 'the readout is rendered by the server');
+T::truthy(strpos($shellPhp, 'role="progressbar"') !== false, 'the progress element carries its ARIA role');
+T::truthy(strpos($shellPhp, 'boot__bg') !== false, 'the blurred backdrop is server-rendered');
 T::truthy(strpos($md3Css, 'prefers-reduced-motion') !== false, 'the animation is disabled on request');
 
 // --- migration completeness GATE --------------------------------------------
