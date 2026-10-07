@@ -904,4 +904,41 @@ T::truthy(strpos($configSource, "'SATAPI_SPACETRACK_IDENTITY'") !== false, 'the 
 // --- sources list must never carry credentials --------------------------
 T::same(Config::DATASETS, array_keys(Config::sources()), 'Config::sources() is exactly the declared dataset list');
 
+// --- primary failure classification -------------------------------------
+// Decided from the structured status, not by matching digits in a message. This is
+// not hypothetical: CelesTrak's block first arrived as HTTP 403 and later as a bare
+// connect timeout, and only the first carried a status code -- so a message pattern
+// opened a cooldown for the block and none for the timeout, leaving every warmup run
+// to pay the full 8s connect timeout forever with no backoff.
+$classified = SourceMerge::classifyPrimaryFailure(array('ok' => false, 'status' => 403, 'error' => 'HTTP 403'));
+T::same(true, $classified[0], 'a 403 opens a cooldown');
+T::same(0, $classified[1], 'a 403 uses the configured block-cooldown window');
+$classified = SourceMerge::classifyPrimaryFailure(array('ok' => false, 'status' => 429, 'error' => 'HTTP 429'));
+T::same(true, $classified[0], 'a 429 opens a cooldown');
+$classified = SourceMerge::classifyPrimaryFailure(array(
+    'ok' => false, 'status' => 0,
+    'error' => 'Failed to connect to celestrak.org port 443 after 8009 ms: Timeout was reached',
+));
+T::same(true, $classified[0], 'a connect timeout opens a cooldown even with no status code');
+T::same(900, $classified[1], 'a transport failure uses the shorter window, so a blip does not silence a healthy source for two hours');
+$classified = SourceMerge::classifyPrimaryFailure(array('ok' => false, 'status' => 0, 'error' => 'Could not resolve host: celestrak.org'));
+T::same(true, $classified[0], 'a DNS failure opens a cooldown');
+$classified = SourceMerge::classifyPrimaryFailure(array('ok' => false, 'status' => 500, 'error' => 'HTTP 500'));
+T::same(false, $classified[0], 'a 5xx is retried rather than cooled down (it is usually transient)');
+$classified = SourceMerge::classifyPrimaryFailure(array('ok' => false, 'status' => 200, 'error' => 'empty response body'));
+T::same(false, $classified[0], 'a parse/body problem is not a transport block');
+$classified = SourceMerge::classifyPrimaryFailure(array('ok' => false, 'status' => 0, 'error' => ''));
+T::same(false, $classified[0], 'a failure with no status and no message does not open a cooldown');
+
+// --- cooldown round trip through BOTH backends --------------------------
+// The cooldown is written to Redis and to a file, and read from Redis first. When the
+// two disagree the read wins, so a silent Redis failure would disable the cooldown
+// while the file made it look present.
+SourceMerge::clearCooldown('__cdtest__');
+SourceMerge::startCooldown('__cdtest__', 300, 'unit test');
+T::truthy(SourceMerge::inCooldown('__cdtest__'), 'cooldown is visible through whichever backend answers first');
+T::truthy(SourceMerge::remainingCooldown('__cdtest__') > 0, 'cooldown reports a positive window after being set');
+SourceMerge::clearCooldown('__cdtest__');
+T::truthy(!SourceMerge::inCooldown('__cdtest__'), 'clearing the cooldown clears BOTH backends');
+
 exit(T::summary());

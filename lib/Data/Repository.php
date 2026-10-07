@@ -120,10 +120,20 @@ final class Repository
                         } else {
                             $primaryError = 'upstream unavailable: ' . $result['error'];
                             // CelesTrak answers 403 with its "excessive downloads"
-                            // notice, which self-heals after two quiet hours.
-                            // Retrying inside that window only extends it.
-                            if (preg_match('/\b(403|429)\b/', (string) $result['error'])) {
-                                SourceMerge::startCooldown($id, null, (string) $result['error']);
+                            // notice, which self-heals after two quiet hours, and it
+                            // later stopped answering this IP at all (a connect
+                            // timeout). Both mean "stop trying for a while": retrying
+                            // inside the window extends the block, and past it every
+                            // run pays the full connect timeout for nothing. The
+                            // decision is made from the structured status rather than
+                            // by matching digits in the message.
+                            $verdict = SourceMerge::classifyPrimaryFailure($result);
+                            if ($verdict[0]) {
+                                SourceMerge::startCooldown(
+                                    $id,
+                                    $verdict[1] > 0 ? $verdict[1] : null,
+                                    (string) $result['error']
+                                );
                             }
                         }
                     } else {
@@ -314,40 +324,49 @@ final class Repository
             return $summary;
         }
 
-        // Group by Accept header so each parallel batch is uniform.
-        $grouped = array();
-        foreach ($missing as $id => $url) {
-            $source = Config::source($id);
-            $accept = isset($source['accept']) ? $source['accept'] : '';
-            $grouped[$accept][] = $id;
-        }
+        // Fetch each missing dataset through the SAME path the site serves from.
+        //
+        // This used to call Client::getMany() directly against $source['url'] and then
+        // write the cache itself, which made the warmup disagree with the request path
+        // in three ways that all mattered:
+        //
+        //   * no primary/fallback. When CelesTrak was blocked the cron reported
+        //     "FAIL 0 records" even though the request path was serving 72 records from
+        //     SpaceTrack, so the only operational signal said the dataset was dead;
+        //   * no cooldown. A blocked source was retried on every run, paying the full
+        //     connect timeout each time.
+        //   * a hardcoded URL means a url change in configuration never took effect on
+        //     the cron path, which is exactly the kind of split-brain a warmup must not
+        //     have.
+        //
+        // The cost is that the four TLE sets are fetched sequentially instead of in one
+        // parallel batch. That is a deliberate trade: correctness of the operational
+        // signal beats a few seconds of wall clock in a job that runs every six hours.
+        foreach (array_keys($missing) as $id) {
+            $started = microtime(true);
+            $result = self::source($id, true);
+            $ms = (int) round((microtime(true) - $started) * 1000);
+            $count = count((array) (isset($result['data']) ? $result['data'] : array()));
+            $error = isset($result['error']) ? (string) $result['error'] : '';
 
-        foreach ($grouped as $accept => $groupIds) {
-            $batch = array();
-            foreach ($groupIds as $id) {
-                $batch[$id] = $missing[$id];
+            if ($count === 0) {
+                $summary[$id] = array(
+                    'ok'      => false,
+                    'count'   => 0,
+                    'error'   => $error === '' ? 'no records resolved' : $error,
+                    'ms'      => $ms,
+                    'cache'   => isset($result['cache']['status']) ? $result['cache']['status'] : '',
+                );
+                continue;
             }
-            $results = Client::getMany($batch, array('accept' => $accept));
-            foreach ($results as $id => $result) {
-                Metrics::upstream($id, $result['ok'], $result['ms'], $result['error']);
-                if (!$result['ok']) {
-                    self::$fetchFailures[$id] = $result['error'];
-                    Logger::warning('upstream_failed', array('source' => $id, 'error' => $result['error'], 'status' => $result['status']));
-                    $summary[$id] = array('ok' => false, 'count' => 0, 'error' => $result['error'], 'ms' => $result['ms']);
-                    continue;
-                }
-                $source = Config::source($id);
-                $records = self::parse($id, $source, $result['body']);
-                if (empty($records)) {
-                    self::$fetchFailures[$id] = 'no parseable records';
-                    Logger::warning('upstream_parse_empty', array('source' => $id));
-                    $summary[$id] = array('ok' => false, 'count' => 0, 'error' => 'no parseable records', 'ms' => $result['ms']);
-                    continue;
-                }
-                Store::write(self::key($id), $records, (int) $source['ttl'] + 2592000, 'serialize', (int) $source['ttl']);
-                unset(self::$results[$id], self::$fetchFailures[$id]);
-                $summary[$id] = array('ok' => true, 'count' => count($records), 'error' => '', 'ms' => $result['ms']);
-            }
+
+            $summary[$id] = array(
+                'ok'    => true,
+                'count' => $count,
+                'error' => '',
+                'ms'    => $ms,
+                'cache' => isset($result['cache']['status']) ? $result['cache']['status'] : '',
+            );
         }
 
         return $summary;

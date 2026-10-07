@@ -67,6 +67,47 @@ final class SourceMerge
     }
 
     /**
+     * Should this primary failure open a cooldown window?
+     *
+     * Decided from STRUCTURED fields (the HTTP status) rather than by matching digits
+     * inside a free-text error string. That distinction is not academic: CelesTrak's
+     * block first arrived as HTTP 403, then as a connection timeout after the host
+     * stopped answering this IP at all. Both mean "do not keep trying", but only the
+     * first carried a status code, so a pattern match against the message opened a
+     * cooldown for the 403 case and none for the timeout -- leaving every warmup run
+     * to wait out the full connect timeout, indefinitely, with no backoff.
+     *
+     * @param array $result the Http\Client result: ok, ms, error, and status when known
+     * @return array{0:bool,1:int} [shouldCooldown, suggestedSeconds]
+     */
+    public static function classifyPrimaryFailure(array $result)
+    {
+        $status = isset($result['status']) ? (int) $result['status'] : 0;
+        $error = strtolower((string) (isset($result['error']) ? $result['error'] : ''));
+
+        // An explicit rate-limit or block answer.
+        if ($status === 403 || $status === 429) {
+            return array(true, 0);
+        }
+        if (preg_match('/\b(403|429)\b/', $error) === 1) {
+            return array(true, 0);
+        }
+
+        // A transport-level failure: timeout, DNS, TLS, connection refused. Treat it
+        // as a shorter block so an ordinary blip does not silence a healthy source for
+        // two hours, while a genuinely unreachable host stops costing every run the
+        // full timeout.
+        if ($status === 0 && $error !== '') {
+            return array(true, 900);
+        }
+        if (preg_match('/timeout|timed out|failed to connect|resolve host|connection refused|ssl/i', $error) === 1) {
+            return array(true, 900);
+        }
+
+        return array(false, 0);
+    }
+
+    /**
      * Is the source currently in its "do not retry" cooldown?
      *
      * CelesTrak's block notice states access is restored automatically after two

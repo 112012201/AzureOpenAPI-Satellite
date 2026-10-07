@@ -31,13 +31,82 @@ final class SpacetrackClient
     private $sessionFile;
 
     /**
+     * Where shared SpaceTrack state lives.
+     *
+     * A dedicated directory rather than the webroot data root, because these files
+     * are written by BOTH the web process and the CLI/cron (which runs as root), and
+     * a session file created by one must be readable by the other:
+     *
+     *   - the session file is 0644. A session cookie is a bearer credential, so 0600
+     *     would be the instinct, but the whole point of sharing it is that the next
+     *     process does not have to log in again -- and SpaceTrack rate-limits LOGINS
+     *     far harder than queries. A root-owned 0600 file made the fallback provider
+     *     unusable for PHP-FPM, which is exactly the "is this the only copy?" class of
+     *     mistake. The file is inside data/, which nginx refuses.
+     *   - the counter and stamp files are 0644 for the same reason.
+     *
+     * @return string
+     */
+    private function stateDir()
+    {
+        $dir = (string) Config::path('data/state');
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0775, true);
+        }
+        // Match the webroot owner when we are root, so a cron-created file cannot lock
+        // the web process out of its own state.
+        if (function_exists('posix_geteuid') && posix_geteuid() === 0) {
+            $owner = @fileowner((string) Config::path('data'));
+            $group = @filegroup((string) Config::path('data'));
+            if ($owner !== false && $owner > 0) {
+                @chown($dir, $owner);
+                if ($group !== false && $group > 0) {
+                    @chgrp($dir, $group);
+                }
+            }
+        }
+
+        return $dir;
+    }
+
+    /**
+     * When running as root, hand a state file to whoever owns the webroot data
+     * directory.
+     *
+     * The cron job and the CLI run as root while PHP-FPM runs as www. Without this, a
+     * session established by one is unreadable by the other and the fallback provider
+     * silently stops working for the site -- which is exactly what happened: the
+     * session file was root:root 0600, so every web-side SpaceTrack lookup missed the
+     * shared session and fell back to a fresh login, which SpaceTrack rate-limits.
+     */
+    private function claimOwnership($path)
+    {
+        if (!function_exists('posix_geteuid') || posix_geteuid() !== 0) {
+            return;
+        }
+        $owner = @fileowner((string) Config::path('data'));
+        $group = @filegroup((string) Config::path('data'));
+        if ($owner !== false && $owner > 0) {
+            @chown($path, $owner);
+            if ($group !== false && $group > 0) {
+                @chgrp($path, $group);
+            }
+        }
+    }
+
+    private function stateFile($name)
+    {
+        return $this->stateDir() . '/' . $name;
+    }
+
+    /**
      * @param array<string,mixed> $options
      */
     public function __construct(array $options = array())
     {
         $configured = Config::get('sources.spacetrack', array());
         $this->options = array_merge(is_array($configured) ? $configured : array(), $options);
-        $this->sessionFile = (string) Config::path('data/spacetrack.session');
+        $this->sessionFile = $this->stateFile('spacetrack.session');
     }
 
     public function configured()
@@ -171,7 +240,7 @@ final class SpacetrackClient
 
         // Cross-process guard: never log in more often than min_login_interval,
         // whatever the cache says. A stampede must not become a login storm.
-        $stampFile = (string) Config::path('data/spacetrack.login.stamp');
+        $stampFile = $this->stateFile('spacetrack.login.stamp');
         $minInterval = max(0, (int) ($this->options['min_login_interval'] ?? 300));
         $last = is_file($stampFile) ? (int) @file_get_contents($stampFile) : 0;
         if ($last > 0 && (time() - $last) < $minInterval) {
@@ -185,6 +254,8 @@ final class SpacetrackClient
             return null;
         }
         @file_put_contents($stampFile, (string) time(), LOCK_EX);
+        @chmod($stampFile, 0644);
+        $this->claimOwnership($stampFile);
 
         $identity = (string) $this->options['identity'];
         $password = (string) $this->options['password'];
@@ -249,8 +320,12 @@ final class SpacetrackClient
         }
         $tmp = $this->sessionFile . '.' . getmypid() . '.tmp';
         if (@file_put_contents($tmp, $payload, LOCK_EX) !== false) {
-            @chmod($tmp, 0600);
+            // 0644 on purpose: see stateDir(). The session must survive the handoff
+            // between the root-owned CLI and the www-owned web process.
+            @chmod($tmp, 0644);
+            $this->claimOwnership($tmp);
             @rename($tmp, $this->sessionFile);
+            $this->claimOwnership($this->sessionFile);
         }
     }
 
@@ -261,7 +336,7 @@ final class SpacetrackClient
             // Clearing the stamp lets the retry path log in immediately; the
             // caller only reaches here after a 401, which is evidence the cached
             // session really is dead.
-            @unlink((string) Config::path('data/spacetrack.login.stamp'));
+            @unlink($this->stateFile('spacetrack.login.stamp'));
         }
     }
 
