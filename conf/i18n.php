@@ -69,6 +69,10 @@ return array(
 
         'loading.title'      => 'Preparing your session',
         'loading.hint'       => 'Checking service status',
+    'boot.preparing'     => 'Preparing your session',
+    'boot.verifying'     => 'Verifying…',
+    'boot.entering'      => 'Entering',
+    'boot.ready'         => 'Ready',
         'error.notfound'     => 'There is no resource at this address.',
         'error.return'       => 'Back to the overview',
     ),
@@ -125,6 +129,10 @@ return array(
 
         'loading.title'      => '正在准备会话',
         'loading.hint'       => '正在检查服务状态',
+    'boot.preparing'     => '正在准备会话',
+    'boot.verifying'     => '正在验证…',
+    'boot.entering'      => '正在进入',
+    'boot.ready'         => '就绪',
         'error.notfound'     => '该地址没有对应的资源。',
         'error.return'       => '返回概览',
     ),
@@ -181,6 +189,10 @@ return array(
 
         'loading.title'      => '正在準備工作階段',
         'loading.hint'       => '正在檢查服務狀態',
+    'boot.preparing'     => '正在準備工作階段',
+    'boot.verifying'     => '正在驗證…',
+    'boot.entering'      => '正在進入',
+    'boot.ready'         => '就緒',
         'error.notfound'     => '此位址沒有對應的資源。',
         'error.return'       => '返回總覽',
     ),

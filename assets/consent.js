@@ -178,26 +178,39 @@
   }
 
   /* ------------------------------------------------------------- overlay */
+  /*
+   * Three phases, reproduced from the reference loading component.
+   *
+   * The component drives everything from one number: how many of its tasks have
+   * finished, over how many there are. It runs every task at once, increments a counter
+   * in each one's `finally`, and every visual is a function of done/total -- the bar's
+   * length, the figure, the caption's position, and the backdrop's blur. When the count
+   * reaches the total it marks itself leaving, waits a fixed 1500ms with the screen
+   * filled, and only then considers the app loaded (handing over at 2400ms).
+   *
+   * That is what this reproduces:
+   *
+   *   phase 1  pre-response   progress 0, backdrop blurred by the full 8px
+   *   phase 2  linear loading the bar grows as tasks finish, backdrop de-focuses
+   *   phase 3  fill and enter the band fills the screen and HOLDS for 1500ms
+   *
+   * The hold is the part that was missing before. An earlier version removed the
+   * overlay as soon as the wipe finished, so the transition was a flicker instead of an
+   * entrance. These three constants are the reference's own numbers.
+   */
+  var PHASE3_BAND_MS = 620;    // the wipe that fills the screen (md3.css `boot-fadeIn`)
+  var PHASE3_HOLD_MS = 1500;   // filled and still, before anything is revealed
+  var PHASE3_TOTAL_MS = 2400;  // band + hold + fade; matches the reference's handover
+  var BOOT_MIN_MS = 1400;      // minimum dwell so phases 1 and 2 are actually seen
+
+  var bootTasks = [];
+  var bootDone = 0;
+  var bootStartedAt = 0;
+  var bootLeaving = false;
 
   function overlay() {
     return document.querySelector('[data-boot]');
   }
-
-  // The overlay is shown from the first paint and must stay up long enough to be read.
-  //
-  // Without a floor it flashed for a few hundred milliseconds and effectively did not
-  // exist: the challenge answers in about a second when the session is already valid,
-  // and when the challenge is switched off the overlay was hidden in the same tick it
-  // was revealed. The screen is the point of the overlay, so it gets a minimum dwell
-  // instead of racing the network. 1400ms also lets the linear entrance settle and the
-  // vertical wipe read as a wipe rather than as a flicker.
-  var BOOT_MIN_MS = 1400;
-  // The exit is a vertical wipe (620ms, linear) and a fade that starts once the band
-  // has reached the bottom (320ms, delayed 620ms). Removal has to wait for both, so it
-  // is the sum plus a small margin. These numbers are mirrored in md3.css under
-  // `.boot--done`, and both comments point at each other so they cannot drift.
-  var BOOT_EXIT_MS = 960;
-  var bootShownAt = Date.now();
 
   function setProgress(percent) {
     var value = Math.max(0, Math.min(100, Math.round(percent)));
@@ -208,38 +221,46 @@
       bar.setAttribute('aria-valuenow', String(value));
     }
     if (fill) {
-      // One custom property drives both orientations: md3.css decides whether it
-      // scales the horizontal bar or the portrait vertical one.
-      fill.style.setProperty('--boot-progress', String(value / 100));
+      /*
+       * One custom property drives the bar, the figure's position AND the backdrop's
+       * blur. md3.css turns it into scaleY() and into blur(8px - p*8px).
+       *
+       * It is set on the ROOT, not on the bar. A custom property inherits down the tree,
+       * and the backdrop (`.boot__bg`) is a SIBLING of the bar, not a descendant -- so
+       * writing it to the bar left the backdrop reading the fallback 0 for its whole
+       * life and the de-focus never happened. Measured: blur stayed at a flat 8px at
+       * 33% and at 67% progress, which is how this was found.
+       */
+      document.documentElement.style.setProperty('--boot-progress', String(value / 100));
     }
-    // The figure reports the same stage, so the number on screen is work that
-    // actually happened rather than a timer.
     if (figure) {
       figure.textContent = String(value);
     }
   }
 
-  function setHint(text) {
+  function setCaption(text) {
+    var caption = document.querySelector('[data-boot-caption]');
+    if (!caption || !text) { return; }
+    /*
+     * Write to the ACTIVE locale span, not to the container.
+     *
+     * The caption is rendered by the shell with one span per locale, exactly like every
+     * other translated string, so the language switcher works without JavaScript having
+     * to know the strings. Assigning to the container flattened all three into view at
+     * once -- measured as "正在验证…正在驗證…Verifying…". Updating only the visible span
+     * keeps that contract and still swaps the caption as tasks finish.
+     */
+    var active = caption.querySelector('.i18n.is-active');
+    if (active) {
+      active.textContent = text;
+      return;
+    }
+    caption.textContent = text;
+  }
+
+  function setHintText(text) {
     var hint = document.querySelector('[data-boot-hint]');
     if (hint && text) { hint.textContent = text; }
-  }
-
-  function hideOverlay() {
-    var el = overlay();
-    if (!el) { return; }
-    var wait = Math.max(0, BOOT_MIN_MS - (Date.now() - bootShownAt));
-    window.setTimeout(function () {
-      el.classList.add('boot--done');
-      window.setTimeout(function () {
-        if (el.parentNode) { el.parentNode.removeChild(el); }
-      }, BOOT_EXIT_MS);
-    }, wait);
-  }
-
-  function showOverlay() {
-    var el = overlay();
-    if (el) { el.removeAttribute('hidden'); }
-    bootShownAt = Date.now();
   }
 
   function showOverlayError(message) {
@@ -247,12 +268,82 @@
     if (el) { el.removeAttribute('hidden'); }
     var box = document.querySelector('[data-boot-error]');
     if (box) {
-      if (message) {
-        var hint = document.querySelector('[data-boot-hint]');
-        if (hint) { hint.textContent = message; hint.setAttribute('hidden', 'hidden'); }
-      }
+      if (message) { setCaption(message); }
       box.removeAttribute('hidden');
     }
+  }
+
+  /**
+   * Register work that the screen waits on. Order matters only for the caption: the
+   * tasks after the first are what the visitor sees while the bar is moving.
+   */
+  function registerBootTask(label, run) {
+    bootTasks.push({ label: label, run: run });
+  }
+
+  /**
+   * Phase 3. Marks the screen as leaving (which starts the band), holds, then fades and
+   * removes the overlay.
+   */
+  function finishBoot() {
+    var el = overlay();
+    if (!el || bootLeaving) { return; }
+    bootLeaving = true;
+    var elapsed = Date.now() - bootStartedAt;
+    var wait = Math.max(0, BOOT_MIN_MS - elapsed);
+    setProgress(100);
+    setCaption(bootText('boot.entering', 'Entering'));
+
+    window.setTimeout(function () {
+      el.classList.add('boot--leaving');
+      // The fade begins only after the band has arrived AND held.
+      window.setTimeout(function () {
+        el.classList.add('boot--done');
+      }, PHASE3_BAND_MS + PHASE3_HOLD_MS);
+      window.setTimeout(function () {
+        if (el.parentNode) { el.parentNode.removeChild(el); }
+      }, PHASE3_TOTAL_MS);
+    }, wait);
+  }
+
+  function bootText(key, fallback) {
+    var table = (boot && boot.strings) || {};
+    return table[key] || fallback;
+  }
+
+  /**
+   * Run every task concurrently and advance on each completion, exactly as the
+   * reference does. A task that rejects still counts: the screen must never stall on a
+   * failure, because the page it is covering has already been sent.
+   */
+  function runBootTasks() {
+    bootStartedAt = Date.now();
+    var total = bootTasks.length;
+    if (total === 0) {
+      finishBoot();
+      return;
+    }
+    setProgress(0);
+    setCaption(bootText('boot.preparing', 'Preparing your session'));
+
+    var finished = 0;
+    function advance(task) {
+      finished += 1;
+      setProgress(finished / total * 100);
+      if (finished >= total) {
+        finishBoot();
+      } else if (task && task.label) {
+        setCaption(task.label);
+      }
+    }
+
+    bootTasks.forEach(function (task, index) {
+      var next = bootTasks[index + 1];
+      Promise.resolve()
+        .then(function () { return task.run(); })
+        .catch(function () { /* counted anyway, see above */ })
+        .then(function () { advance(next); });
+    });
   }
 
   /* ------------------------------------------------------ proof of work */
@@ -423,51 +514,71 @@
     });
   }
 
-  function runPow() {
+  /**
+   * The challenge, as one task among several rather than as the whole screen.
+   *
+   * It resolves either way. Cap being unreachable degrades the protection; it must not
+   * hold the screen open, because the content behind it has already been sent.
+   */
+  function powTask() {
     var pow = boot.pow || {};
-    // Always reveal the overlay first: the animation is what the visitor sees while the
-    // page settles, whether or not a challenge is running.
-    showOverlay();
-
     if (!pow.enabled) {
-      // No challenge: still let the animation finish its minimum dwell, then clear.
-      setProgress(100);
-      hideOverlay();
-      return;
+      return function () { return Promise.resolve(); };
     }
 
-    setProgress(15);
-
-    loadCapScript(pow.endpoint)
-      .then(function () {
-        setProgress(45);
-        return solveWithCap(pow.endpoint, pow.site_key);
-      })
-      .then(function (token) {
-        setProgress(75);
-        return verifyPow(token);
-      })
-      .then(function () {
-        setProgress(100);
-        if (document.body) { document.body.classList.add('is-verified'); }
-        hideOverlay();
-      })
-      .catch(function (error) {
-        // Fail open. Cap being unreachable must degrade the protection, not lock the
-        // visitor out of a page whose content the server already sent.
-        var message = (document.querySelector('[data-boot-fail]') || {}).textContent || 'unavailable';
-        showOverlayError(message + ' (' + (error && error.message ? error.message : 'error') + ')');
-        window.setTimeout(hideOverlay, 2500);
-      });
+    return function () {
+      return loadCapScript(pow.endpoint)
+        .then(function () { return solveWithCap(pow.endpoint, pow.site_key); })
+        .then(function (token) { return verifyPow(token); })
+        .then(function () {
+          if (document.body) { document.body.classList.add('is-verified'); }
+        })
+        .catch(function (error) {
+          var message = (document.querySelector('[data-boot-fail]') || {}).textContent || 'unavailable';
+          showOverlayError(message + ' (' + (error && error.message ? error.message : 'error') + ')');
+        });
+    };
   }
 
   /* ---------------------------------------------------------------- init */
+
+  function initBoot() {
+    var pow = boot.pow || {};
+
+    // A short, real round trip so the rail reports something that actually happened
+    // rather than stepping on a timer. It is deliberately the cheapest endpoint.
+    registerBootTask(bootText('boot.preparing', 'Preparing your session'), function () {
+      if (!window.fetch) { return Promise.resolve(); }
+      return fetch('/v1/health/live', { headers: { Accept: 'application/json' } })
+        .then(function () { return null; })
+        .catch(function () { return null; });
+    });
+
+    // The session check, which is the work that genuinely gates the page.
+    registerBootTask(
+      bootText('boot.verifying', 'Verifying…'),
+      powTask()
+    );
+
+    // Phase 3 gets its own task so the count reaches the total on the handover step,
+    // the way the reference's last task does.
+    registerBootTask(bootText('boot.entering', 'Entering'), function () {
+      if (!pow.enabled) { setCaption(bootText('boot.ready', 'Ready')); }
+      return Promise.resolve();
+    });
+
+    runBootTasks();
+  }
 
   function init() {
     try { initLanguageSwitch(); } catch (e) { /* a broken switcher must not stop the page */ }
     try { initAnnouncement(); } catch (e) { }
     try { initConsent(); } catch (e) { }
-    try { runPow(); } catch (e) { hideOverlay(); }
+    try { initBoot(); } catch (e) {
+      // The screen must never be left standing: reveal the page on any failure.
+      var el = overlay();
+      if (el) { el.classList.add('boot--leaving', 'boot--done'); }
+    }
   }
 
   if (document.readyState === 'loading') {

@@ -599,58 +599,67 @@ done
 | 2026-10-07 | 修复 `/legal`、`/privacy`、`/terms` 未被 PoW 豁免 | 门禁不能挡住"被要求同意的文档" |
 | 2026-10-07 | 首页数据修正 | 过时的 `3 h cache TTL` → `6 h refresh interval`；无可测依据的 `99.9% cache hit` → 实时 `service uptime` |
 | 2026-10-07 | 加载画面改为参照 **endfield.hypergryph.com** 的结构 | 全屏暗底 + `blur(8px)` 背景、居中方框标记、超大百分比读数、细进度条；离场为 `::after` 色带 `scaleX(0→1)` 横向擦除（`transform-origin:left`，560ms `cubic-bezier(1,0,.7,1)`）+ 延迟淡出。横屏进度条横向、竖屏自动改为左侧竖条（`orientation` 媒体查询）。**配色用本站品牌青而非参考站的 `#fffa00`，圆角保持 0** |
+| 2026-10-07 | 加载动画按参考站**组件源码重置为三阶段**（预响应 / 线性加载条 / 全屏铺满进入，铺满后保持 1500ms） | 实测 铺满→淡出 2121ms、铺满→移除 2401ms；blur 8px→0 共 39 个中间值；断言 662 → 691 |
 
-### 加载画面（**所有 HTML 页面**）
+### 加载画面（**所有 HTML 页面**）· 三阶段
 
-**结构参照 endfield.hypergryph.com**，但按运维要求做了两处硬性改动：**动效全部为垂直方向**、**缓动全部为 `linear`**。
+**实现依据是参考站的组件源码**，不是照着截图猜的。该组件在
+`web.hycdn.cn/endfield/official-v4/_next/static/chunks/8858-b4305fa4f5be6c8a.js`
+（模块 `71272`），核心逻辑是：
 
-| 项 | 实现 |
-|---|---|
-| **覆盖范围** | `/` `/index` `/docs` `/legal` `/privacy` `/terms` + 错误页（`error.html`）。**`/v1/*` 与静态资源不带**——API 客户端拿到的是数据，不该被加载页拦 |
-| 容器 | `position:fixed;inset:0;z-index:200`，暗令牌 `oklch(0.145 0.009 240)` |
-| 背景 | 全屏 CSS 渐变 + **`filter:blur(8px)`**（无请求、不会 404） |
-| 进度轨 | **左缘竖条 `width:6px; height:100%`**，填充 `scaleY` 向下生长，`transform-origin:center top` |
-| 未完成段 | `#fff` 26% —— 12% 时填充段与未完成段明度几乎相同，进度条就失去意义了，这是实测后调高的 |
-| 百分比 | 轨道右侧（横屏 `left:2.25rem`，竖屏 `1.75rem`），`clamp(…, 4.375rem)` |
-| 入场 | `boot-rise`：`translateY(14px → 0)`，420ms **linear** |
-| 标记 | `boot-orbit` 垂直上下 2.4s **linear** + `boot-scan` 扫描线自上而下 1.6s **linear** |
-| 离场 | `boot-wipe` **`scaleY(0 → 1)` 自上而下铺满** 620ms **linear**，随 `opacity 320ms linear 620ms` 淡出 |
+```js
+let [M, Z] = useState(0);                 // M = 已完成任务数
+let h = C.length;                         // h = 任务总数
+let A = () => { for (let e of (Z(0), C)) e().finally(() => Z(e => e + 1)); };
+let f = useSpring(0, { stiffness: 120, damping: 20 });
+useEffect(() => { f.set(M / h * 100) }, [M, h, f]);
+useEffect(() => {
+  if (M >= h) { onLeaving?.(); g(true);                       // 阶段 3 开始
+    setTimeout(() => m.setState({ loaded: true }), 1500);      // 铺满后保持 1500ms
+    let e = setTimeout(() => onFinished?.(), 2400);            // 2400ms 交棒
+    return () => clearTimeout(e);
+  } g(false)
+}, [M]);
+// 背景持续去焦（不是只在结尾才切换）：
+animate={{ filter: `blur(${8 - M / h * 8}px)` }} transition={{ type: 'tween', duration: .5 }}
+// 进度条：竖向生长
+animate={{ height: `${M / h * 100}%`, width: '100%' }}
+```
 
-**六处动画/过渡实测全部为 `linear`**：`boot-rise` · `boot-orbit` · `boot-scan` · `boot-wipe` · `transform 240ms` · `opacity`。
-**横向要素零残留**：`scaleX` 与 `translateX` 已从加载段完全删除；`orientation` 媒体查询现在**只调尺寸（读数左边距与字号），不再改变轴向**。
+**关键认识有两条**：进度由**真实任务完成数**驱动（`M/h`），不是定时器；**背景模糊也是进度的函数**——页面在加载过程中**连续对焦**，而不是最后才切换。
 
-> **时序耦合**：`assets/consent.js` 的 `BOOT_MIN_MS = 1400`（最小驻留，保证入场与擦除真正看得见）与 `BOOT_EXIT_MS = 960`（620 擦除 + 320 淡出 + 余量）必须与 `md3.css` 的 `.boot--done` 一起改，两处注释互相指向。改错会让覆盖层提前移除，擦除只播一半。
+| 阶段 | 表现 | 本站实现 |
+|---|---|---|
+| **1 预响应** | 进度 0，背景**深度失焦 8px** | 进度 0，`blur(calc(8px - var(--boot-progress) * 8px))` |
+| **2 线性加载条** | 左侧竖轨随任务完成生长；**背景同步去焦 8px→0** | 三个真实任务（`/v1/health/live` 往返 · Cap 挑战 · 交棒）驱动 `0 → 33 → 67 → 100`，伴随 **39 个**中间 blur 值 |
+| **3 全屏铺满进入** | 色带铺满 → **保持 1500ms** → 淡出 → 2400ms 交棒 | `boot--leaving` 起 `boot-fadeIn`（620ms 铺满）→ `+1500ms` 加 `boot--done` 淡出 → `+2400ms` 移除 |
 
-**数字是真实进度**：`setProgress()` 同时写 `--boot-progress`（CSS 决定纵向生长）与百分比文本，由 Cap 挑战的实际阶段驱动（15 → 45 → 75 → 100），不是定时器模拟。
+> **第三阶段的"保持"是最容易漏掉的一环**，也是整个动画手感的关键。早先的实现一擦除完就移除覆盖层，于是变成"闪一下"而不是"进入"。
+> 实测：铺满→淡出 **2121ms**（期望 620+1500 = 2120ms）、铺满→移除 **2401ms**（期望 2400ms）。
+
+**两处按运维要求覆盖参考实现**：动效**全垂直**（参考在竖屏是横向生长，这里两种朝向都纵向）、缓动**全线性**（参考进度条用 spring、色带用 linear，这里统一 linear）。
+`orientation` 媒体查询现在只调尺寸，**不改变轴向**；横向要素（`scaleX` / `translateX`）在加载段**零残留**。
+
+**时序常数（三者必须一起改）**：`assets/consent.js` 的 `PHASE3_BAND_MS = 620`、`PHASE3_HOLD_MS = 1500`、`PHASE3_TOTAL_MS = 2400`，对应 `md3.css` 的 `boot-fadeIn` 与 `.boot--done`，两处注释互相指向。
+
+**进度变量写在 `document.documentElement` 上**，不是写在进度条元素上。背景层 `.boot__bg` 是进度条的**兄弟节点**，而 CSS 变量只能向下继承——写在条上会让背景永远读到兜底值 0，去焦完全不发生。这是实测发现 `blur` 恒为 `8px` 才定位到的。
 
 **验收：**
 
 ```bash
-# 覆盖范围：这六个页面都必须带加载页
-for p in / /index /docs /legal /privacy /terms; do
-  printf '%-10s %s\n' "$p" "$(curl -s -H 'Host: satellite.api.authskin.xyz' http://127.0.0.1$p | grep -c 'data-boot-figure')"
-done
-# API 与静态资源必须不带（期望无输出）
-for p in /v1/meta /v1/health /v1/tle/weather /openapi.yaml /assets/app.css; do
-  curl -s -H 'Host: satellite.api.authskin.xyz' http://127.0.0.1$p | grep -q 'data-boot-figure' && echo "泄漏: $p"
-done
+bash /tmp/loader-check2.sh
+# 覆盖范围 / 三阶段结构 / 全垂直 / 全线性 / 文案不串台 / 691 断言
 ```
 
-**浏览器内验证**（比读 CSS 文件可靠：能同时确认规则真的解析生效、以及实测几何）：
+三阶段时间线需要真实浏览器驱动，期望值如下：
 
-```js
-// 控制台执行
-var t = document.querySelector('.boot__track').getBoundingClientRect();
-var f = document.querySelector('.boot__fill').getBoundingClientRect();
-({ track: [t.x, t.y, t.width, t.height],        // 期望 [0, 0, 6, 视口高]
-   fill: [f.width, f.height],                    // 期望 [6, 0.45 × 视口高]
-   transform: getComputedStyle(document.querySelector('.boot__fill')).transform,
-   origin: getComputedStyle(document.querySelector('.boot__fill')).transformOrigin })
-// 期望 transform 为 matrix(1, 0, 0, 0.45, 0, 0)，origin 为 "3px 0px"（即 center top）
 ```
-
-> **注意**：读 CSS 文件不足以判定，因为浏览器可能仍在执行旧副本（本项目已因此误判过一次）。
-> 判据是**从浏览器内读回 `sheet.cssRules`**，或确认页面上 `md3.css?v=` 的哈希已变化。
+首次 leaving:  ~6.3s    进度 100，色带开始铺满
+首次 done:     ~8.4s    铺满后保持 → 淡出      间隔 ≈ 2120ms (= 620 + 1500)
+覆盖层移除:    ~8.7s                           间隔 ≈ 2400ms
+blur:  8px → 0px，约 39 个中间值（连续去焦，不是跳变）
+进度:  0 → 33 → 67 → 100（真实任务，不是定时器）
+```
 
 **改了 `shell.php` / 公告条 / 同意弹窗 / 三语词条后必须重新生成错误页**（它内嵌了 shell）：
 
@@ -660,7 +669,6 @@ var f = document.querySelector('.boot__fill').getBoundingClientRect();
 ```
 
 ---
-
 ## 12. 术语表
 
 | 术语 | 含义 |

@@ -176,27 +176,46 @@ $bootBlock = static function ($key, $tag = 'span', $attrs = '') use ($bootTAll, 
 </div>
 <?php endif; ?>
 <div class="boot" data-boot data-pow-enabled="<?php echo $powStatus['enabled'] ? '1' : '0'; ?>" data-pow-endpoint="<?php echo htmlspecialchars((string) $powStatus['endpoint'], ENT_QUOTES, 'UTF-8'); ?>" data-pow-sitekey="<?php echo htmlspecialchars((string) $powStatus['site_key'], ENT_QUOTES, 'UTF-8'); ?>">
-  <?php /* Structure follows the Endfield loading screen: a dark full-bleed field, a
-           centred mark, and a hairline progress track with an oversized percentage
-           readout beside it. The figure is the real stage value, not a decoration. */ ?>
-  <span class="boot__bg" aria-hidden="true"></span>
-  <div class="boot__mark" aria-hidden="true">
+  <?php /* Structure mirrors the reference loading screen, which the operator asked to be
+           studied and reproduced. Its component renders exactly these parts:
+
+             .bg           a full-bleed layer whose blur is a FUNCTION of progress
+                           (blur(8 - done/total*8)px), so the page comes into focus as
+                           work completes rather than snapping at the end
+             .logo         the mark
+             .moreDeco     .deco + .divider + .slogan + .triangles
+             .progress     .progressBar (grows) + .progressText
+                             .core   .value (the figure) + .symbol (the unit)
+                             .deco   the status caption
+
+           The three phases are driven by real task completion, not a timer, so the
+           markup carries only what the phases need: a bar, a figure, and a caption. */ ?>
+  <div class="boot__bg" data-boot-bg aria-hidden="true"></div>
+
+  <div class="boot__logo" aria-hidden="true">
     <span class="boot__glyph"></span>
   </div>
-  <p class="boot__title"><?php echo $bootBlock('loading.title'); ?></p>
 
-  <div class="boot__meter">
-    <p class="boot__readout" aria-hidden="true">
-      <span class="boot__figure" data-boot-figure>0</span><span class="boot__pct">%</span>
-    </p>
-    <div class="boot__track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
-         aria-label="<?php echo htmlspecialchars(I18n::translate($bootCode, 'loading.title', 'Loading'), ENT_QUOTES, 'UTF-8'); ?>"
-         data-boot-bar>
-      <span class="boot__fill" data-boot-fill></span>
+  <div class="boot__moreDeco" aria-hidden="true">
+    <div class="boot__deco"></div>
+    <div class="boot__divider"></div>
+    <p class="boot__slogan"><?php echo htmlspecialchars((string) Config::get('service.tagline', 'OVER THE FRONTIER / INTO THE FRONT'), ENT_QUOTES, 'UTF-8'); ?></p>
+    <div class="boot__triangles"></div>
+  </div>
+
+  <div class="boot__progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+       aria-label="<?php echo htmlspecialchars(I18n::translate($bootCode, 'loading.title', 'Loading'), ENT_QUOTES, 'UTF-8'); ?>"
+       data-boot-bar>
+    <div class="boot__progressBar" data-boot-fill></div>
+    <div class="boot__progressText" data-boot-text>
+      <div class="boot__core">
+        <span class="boot__value" data-boot-figure>0</span><span class="boot__symbol">%</span>
+      </div>
+      <div class="boot__caption" data-boot-caption><?php echo $bootBlock('pow.working'); ?></div>
     </div>
   </div>
 
-  <p class="boot__hint" data-boot-hint><?php echo $bootBlock('pow.working'); ?></p>
+  <p class="boot__hint boot__hint--sr" data-boot-hint hidden><?php echo $bootBlock('pow.working'); ?></p>
   <p class="boot__error" data-boot-error hidden>
     <span data-boot-fail hidden><?php echo $bootBlock('pow.unavailable'); ?></span>
     <?php echo $bootBlock('pow.failed'); ?>
@@ -220,6 +239,15 @@ window.__SATAPI_BOOT__ = <?php echo json_encode(array(
     'consent'       => $consentPayload,
     'consentRequired' => (bool) Config::get('consent.required', false),
     'pow'           => $powStatus,
+    // Captions the loading screen shows in phase 2. Passed through the boot payload
+    // rather than read from the DOM because the component swaps them as each task
+    // finishes, and the locale is already resolved here.
+    'strings'       => array(
+        'boot.preparing' => I18n::translate($bootCode, 'boot.preparing', 'Preparing your session'),
+        'boot.verifying' => I18n::translate($bootCode, 'boot.verifying', 'Verifying…'),
+        'boot.entering'  => I18n::translate($bootCode, 'boot.entering', 'Entering'),
+        'boot.ready'     => I18n::translate($bootCode, 'boot.ready', 'Ready'),
+    ),
     'cookies'       => $cookieStatus,
     'endpoints'     => array(
         'consentStatus' => '/v1/consent/status',
