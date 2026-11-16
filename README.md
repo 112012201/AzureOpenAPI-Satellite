@@ -1,187 +1,234 @@
-# AzureOpenAPI for Satellite v2.2
+# AzureOpenAPI for Satellite
 
-统一的 TLE 与卫星元数据代理服务，聚合 **CelesTrak（Weather + Amateur）**、**AMSAT**、**SatNOGS DB** 三个上游，
-对外提供去重合并的 TLE 流、单源 TLE、卫星/发射机目录、AMSAT 实时状态报告，以及健康检查与状态面板。
+**One de-duplicated TLE and satellite metadata feed**, merged from CelesTrak, AMSAT and
+SatNOGS DB — served as JSON or classic 20-column TLE, described by OpenAPI 3.1, and
+cached at the edge.
 
-- API 文档（交互式）：`/docs.html`
-- OpenAPI 3.1：`/openapi.yaml`
-- 状态面板：`/v1/status`
-- 服务元数据：`/v1/meta`
-- **部署手册：`DEPLOY.md`（完整步骤、验证清单、排障与回滚）**
+> 把 CelesTrak、AMSAT 与 SatNOGS 三个上游去重合并成一份 TLE 与卫星元数据源，
+> 可输出 JSON 或经典 20 列 TLE，边缘缓存，OpenAPI 3.1 描述。
 
-> 从旧版（`tle_merge.php` / `health.php` 直连脚本）迁移而来：**所有旧 URL 仍然可用**，
-> 会附带 `Deprecation` 与 `Link: rel="successor-version"` 响应头，指向 `/v1` 中的对应端点。
+| | |
+|---|---|
+| **Version** | `3.3.0+ra` ([SemVer 2.0.0](https://semver.org/)) |
+| **API version** | `v1` |
+| **Live** | <https://satellite.authskin.xyz> · CDN <https://satellite.db.authskin.xyz> |
+| **Docs** | <https://satellite.authskin.xyz/docs> · [OpenAPI 3.1](openapi.yaml) |
+| **Runtime** | PHP 7.4 – 8.4 (developed and tested on 8.4), no Composer dependencies |
+| **Tests** | `php tests/run.php` — 1138 assertions |
+| **License** | MIT (code) · upstream data belongs to its sources |
 
 ---
 
-## 1. 目录结构
+## Why it exists
 
-```
-.
-├── index.php               前端控制器（唯一入口，含 CLI 分支）
-├── bootstrap.php           配置/自动加载/错误处理/目录初始化
-├── router.php              仅用于 `php -S` 本地开发
-├── index.html              落地页（自包含，无 CDN 依赖）
-├── docs.html               API 参考（内置 Swagger UI 5.32 + 自定义主题）
-├── 404.html                自定义错误页
-├── openapi.yaml            OpenAPI 3.1 描述
-├── common.php              旧版函数兼容层（check_maintenance 等）
-├── tle_merge.php …        旧文件名的兼容外壳（各 3 行）
-├── lib/
-│   ├── Api/Router.php      路由表（v1 + legacy）
-│   ├── Api/Endpoints/      Tle / Catalog / AmsatStatus / System / StatusPage
-│   ├── Cache/Store.php     Redis + 文件两级缓存，SWR + 单飞 + 原子写
-│   ├── Cache/Lock.php      flock 单飞锁
-│   ├── Data/Repository.php 所有数据集的取数/解析/缓存编排
-│   ├── Data/Collection.php 过滤、投影、排序、分页
-│   ├── Data/Amsat.php      AMSAT 状态页解析
-│   ├── Http/Client.php     上游 HTTP 客户端（TLS 校验、重试、限长、并行）
-│   ├── Http/Request.php    请求解析与内容协商
-│   ├── Http/Response.php   ETag/304、缓存头、CORS、压缩、延迟任务
-│   ├── Support/…           Problem(RFC 9457)、Maintenance、RateLimit、Metrics、Legacy
-│   ├── Tle/Parser.php      TLE 解析/校验/合并
-│   ├── Config.php          默认配置 + conf/config.php + SATAPI_* 环境变量
-│   ├── Logger.php          JSON Lines 日志 + 轮转
-│   ├── Errors.php          错误/异常/致命错误统一转为 problem+json
-│   └── Cli.php             refresh / health / prune / maintenance
-├── assets/                 设计系统 CSS/JS + Swagger 暗色主题
-├── conf/                   config.example.php、nginx.conf.example
-├── bin/warmup.sh           缓存预热（flock、日志轮转、退出码）
-├── tests/                  run.php（单元）、request.php（单请求调试）、fixtures/
-├── data/                   缓存与状态（**必须禁止 Web 访问**）
-└── logs/                   app.log / warmup.log
-```
+The three upstreams disagree about spelling, catalogue numbers, units and freshness, and
+each one rate-limits differently. A satellite tracker that polls them directly inherits all
+of that. This service owns the merge: it fetches, validates (including the TLE modulo-10
+checksum), repairs what can be repaired *without inventing data*, records every repair as a
+counter, and serves one consistent feed behind a cache that survives an upstream outage.
 
-## 2. 部署
+Design promises that are actually enforced by the test suite:
 
-### 2.1 环境要求
+- **Errors are RFC 9457 `application/problem+json`** — never an HTML page, never a bare 500.
+- **Nothing is silently rewritten.** A record that fails its checksum is served with
+  `checksum_ok=false`, not "fixed".
+- **Conditional requests work**: `ETag` + `304`, so a polling client costs almost nothing.
+- **Freshness is stated, not implied**: `X-Service-Version`, cache age and source are on
+  every response.
 
-| 项目 | 要求 |
-| --- | --- |
-| PHP | 7.4 ~ 8.4（已兼容 8.4） |
-| 扩展 | `curl`（必需）、`json`（必需）、`openssl`（仅旧票据校验）、`redis`（可选） |
-| Web 服务器 | nginx + PHP-FPM（推荐）；Apache 可用 `.htaccess` 兜底 |
-| 可选 | Redis（缓存 + 维护开关），EdgeOne 或其他 CDN |
+## Features
 
-### 2.2 步骤
+- **Merged TLE** across CelesTrak (Weather + Amateur), AMSAT and SatNOGS, de-duplicated by
+  NORAD catalogue number, with per-source subsets available individually
+- **Satellite and transmitter catalogues** (SatNOGS DB), plus **AMSAT live status reports**
+- **`/v1/health` and `/v1/status`** — readiness and a human status page
+- **Two cache layers** (Redis + files) with stale-while-revalidate, single-flight and
+  atomic writes; a manual `warmup` CLI for cron
+- **Bilingual UI** — Simplified Chinese, Traditional Chinese and English in one document, so
+  a reader without JavaScript still gets the right language
+- **Seasonal themes** that switch on a calendar (Christmas / New Year / Spring Festival)
+- **A proof-of-work gate** in front of HTML pages, with a fail-open path so a reader is never
+  locked out by a broken challenge
+- **Encrypted media**: the landing page's video and the seasonal music ship as AES-256-CBC
+  ciphertext, decrypted in the browser from a key issued only to a browser that solved the
+  challenge. This stops crawlers and hot-linking — it is **not** DRM, and
+  `assets/music/README.md` says so explicitly
+- **Search-engine plumbing**: canonical URLs, self-referencing `hreflang`, JSON-LD, a sitemap
+  that is asserted against the pages it lists, and IndexNow + Bing Webmaster submission
+
+## Quick start
 
 ```bash
-# 1) 解压到站点根目录（保持目录结构）
-tar -xzf satellite.api.authskin.xyz_optimized.tar.gz -C /www/wwwroot/
-cd /www/wwwroot/satellite.api.authskin.xyz
+git clone https://github.com/112012201/satapi.git
+cd satapi
 
-# 2) 可写目录
-mkdir -p data/cache data/ratelimit logs
-chown -R www:www data logs
-
-# 3) 本地配置（可选）
-cp conf/config.example.php conf/config.php && vi conf/config.php
-
-# 4) 环境变量（推荐用环境变量保存密钥）
-export SATAPI_ADMIN_TOKEN='<随机长字符串>'   # 启用 POST /v1/maintenance
-export SATAPI_RATELIMIT_ENABLED=1            # 可选：源站限流
-export SATAPI_REDIS_HOST=127.0.0.1
-
-# 5) nginx：二选一
-#    5a) 宝塔面板（推荐）：网站 → 设置 → 伪静态，粘贴 conf/bt-panel-rewrite.conf
-#        的内容即可，无需改动主配置；记得把块里的 php-cgi-82.sock 换成实际版本。
-#    5b) 自管 nginx：参考 conf/nginx.conf.example（含静态缓存、目录封禁、限流、gzip）
-
-# 6) 预热缓存并自检
-php index.php refresh --target=tle,satellites,transmitters,amsat-status
-php index.php health
+# Local development: PHP's built-in server, no nginx needed
+php -S 127.0.0.1:8080 router.php
+# → http://127.0.0.1:8080/  (landing page)
+# → http://127.0.0.1:8080/v1/tle?format=json
 ```
 
-### 2.3 定时任务
-
-```cron
-*/10 * * * * /www/wwwroot/satellite.api.authskin.xyz/bin/warmup.sh --quiet
-```
-
-`warmup.sh` 使用 `flock` 防重入、按大小轮转日志，并在上游失败时返回非 0 退出码。
-
-## 3. API 一览
-
-| 方法 | 路径 | 说明 | 缓存 |
-| --- | --- | --- | --- |
-| GET | `/v1/tle` | 合并去重 TLE（`group`、`norad`、`limit`、`format`、`meta`） | 3h |
-| GET | `/v1/tle/{source}` | 单源 TLE：`weather` `amateur` `amsat` `satnogs` | 3h / 12h |
-| GET | `/v1/satellites` | SatNOGS 卫星目录，分页 + 字段投影 + 过滤 | 6h |
-| GET | `/v1/transmitters` | SatNOGS 发射机目录，分页 + 字段投影 + 过滤 | 6h |
-| GET | `/v1/amsat/status` | AMSAT 实时状态报告，过滤 + 分页 | 1h |
-| GET | `/v1/health` | 聚合健康（`?ui=1` 返回面板） | 实时 |
-| GET | `/v1/health/live` | 存活探针 | 实时 |
-| GET | `/v1/health/ready` | 就绪探针 | 实时 |
-| GET | `/v1/status` | HTML 状态面板 | 实时 |
-| GET | `/v1/meta` | 服务元数据与端点索引 | 5m |
-| GET | `/v1/maintenance` | 各端点维护状态 | 实时 |
-| POST | `/v1/maintenance` | 切换维护状态（需 Bearer Token） | 实时 |
-
-示例：
+Optional local configuration:
 
 ```bash
-curl -sS 'https://satellite.api.authskin.xyz/v1/tle?norad=25544&format=json' | jq '.data[0]'
-curl -sS 'https://satellite.api.authskin.xyz/v1/tle/weather'            # 经典 20 列 TLE
-curl -sS 'https://satellite.api.authskin.xyz/v1/transmitters?mode=FM&per_page=20&fields=uuid,mode,baud'
-curl -sS -X POST 'https://satellite.api.authskin.xyz/v1/maintenance' \
-     -H "Authorization: Bearer $SATAPI_ADMIN_TOKEN" \
-     -H 'Content-Type: application/json' \
-     -d '{"endpoint":"tle_weather","enabled":true,"message":"Scheduled upgrade","ttl":1800}'
+cp conf/config.example.php conf/config.php   # then edit
 ```
 
-### 响应约定
+`conf/config.php`, `conf/media.php`, `conf/indexnow.php` and `conf/bing.php` are
+**git-ignored** and per deployment. Everything has a production-sane default, so the quick
+start above works with no configuration at all.
 
-- **JSON 信封**：`{ "meta": { … }, "data": … }`，`meta` 含 `service/version/api_version/generated/request_id/elapsed_ms/count` 等。
-- **错误**：RFC 9457 `application/problem+json`，字段 `type/title/status/detail/code/instance/request_id`；
-  TLE 文本客户端仍收到 `# 4xx/5xx` 纯文本错误（内容协商自动区分）。
-- **缓存**：`ETag` + `Last-Modified`，支持 `If-None-Match`/`If-Modified-Since` → `304`；
-  `Cache-Control` 含 `s-maxage` 与 `stale-while-revalidate`，便于 CDN 边缘缓存；
-  `X-Cache-Status`（`HIT|MISS|STALE`）、`X-Cache-Age`、`X-Cache-TTL`、`X-Cache-Backend` 便于排障。
-- **CORS**：默认 `Access-Control-Allow-Origin: *`，`OPTIONS` 预检返回 204。
-- **压缩**：客户端支持且响应 > 1 KiB 时由 PHP gzip（nginx 亦可接管）。
+Requirements: PHP with `curl`, `mbstring`, `json`, `openssl` (for the media key) and, for
+the best experience, Redis (optional — the file cache is used when it is absent).
 
-## 4. 运维命令
+## API surface
+
+| Endpoint | What it returns |
+|---|---|
+| `GET /v1/tle` | Merged TLE — `?format=json\|text`, `?source=`, filters, pagination |
+| `GET /v1/tle/weather` · `/amateur` · `/amsat` · `/satnogs` | One upstream set, unmerged |
+| `GET /v1/satellites` | Satellite catalogue (SatNOGS DB) |
+| `GET /v1/transmitters` | Transmitter catalogue (SatNOGS DB) |
+| `GET /v1/amsat/status` | AMSAT live status reports |
+| `GET /v1/amsat/*` | Read-only AMSAT v1 proxies (`catalog`, `reports`, `summary`, …) |
+| `GET /v1/health` · `GET /v1/status` | Readiness / human status page |
+| `GET /v1/meta` | Service, version, endpoints, cache and region metadata |
+| `GET /docs` | Interactive OpenAPI 3.1 reference |
+| `GET /openapi.yaml` | The contract itself |
+
+The legacy URLs (`/tle_merge.php`, `/health.php`, …) still answer, with `Deprecation` and
+`Link: rel="successor-version"` headers pointing at the `/v1` equivalent.
+
+## Configuration
+
+Defaults live in `lib/Config.php`; overrides in `conf/config.php`; environment variables
+win over both (`SATAPI_*`). The ones that matter:
+
+| Variable | Purpose |
+|---|---|
+| `SATAPI_SERVICE_VERSION` | Version reported on every response |
+| `SATAPI_SEO_SITE` | Canonical host for `canonical`/`og:url`/sitemap |
+| `SATAPI_GOOGLE_VERIFICATION` · `SATAPI_BING_VERIFICATION` | Search-console meta tokens |
+| `SATAPI_BING_API_KEY` · `SATAPI_BING_SITE` | Bing Webmaster API (prefer `conf/bing.php`) |
+| `SATAPI_ADMIN_TOKEN` | Required for `POST /v1/maintenance` |
+| `SATAPI_REDIS_*` | Cache backend |
+| `SATAPI_THEME_SEASON` | Pin a seasonal theme outside its calendar window |
+
+## Testing
 
 ```bash
-php index.php refresh [--target=tle,satellites,transmitters,amsat-status] [--json]
-php index.php health [--json]          # 退出码 1 = critical
-php index.php prune                    # 清理限流桶与过期轮转日志
-php index.php maintenance --enable=tle_weather --message="..." --ttl=1800
-php index.php maintenance --disable=all
+php tests/run.php          # the whole suite: 1138 assertions
+php tests/run.php --verbose
 ```
 
-## 5. 测试
+The suite is the contract, and it covers things that are otherwise invisible: that a
+canonical URL never names another host, that every sitemap entry is a page the app serves,
+that an unknown path answers 404 rather than 200, that the media encryption round-trips, and
+that every meta description fits a search engine's 25–160 character rule.
+
+## Deployment
+
+Two documents, both maintained with the code:
+
+- **[DEPLOY.md](DEPLOY.md)** — step-by-step deployment, nginx/rewrite rules, verification
+  checklist, rollback
+- **[OPERATIONS.md](OPERATIONS.md)** — runbook: how to change things safely, what breaks,
+  what has broken before and why
+
+Short version: nginx serves static files, everything dynamic goes through `index.php`; the
+rewrite file is a strict allowlist (a new dynamic path that is not listed answers 404 — this
+has bitten twice).
+
+### Updating a deployment with git
+
+The repository is the source of truth; a deployment is a checkout plus its own untracked
+configuration.
 
 ```bash
-php tests/run.php --verbose        # 163 条断言：解析、合并、缓存、限流、协商、路由、健康
-php tests/request.php GET '/v1/tle?format=json' --seed      # 单请求调试（打印真实响应）
+# check what is available without touching the working tree
+git fetch origin
+
+# see what would change
+git log --oneline HEAD..origin/main
+
+# apply it
+git pull --ff-only origin main
 ```
 
-`tests/request.php` 是一个无需 Web 服务器的请求派发器，可直接复现线上路由行为。
+`--ff-only` is deliberate: it refuses to create a merge commit on a production host, so a
+deployment that has been edited in place fails loudly instead of silently diverging.
+`git fetch` is the safe half — it updates the local copy of the remote and changes nothing on
+disk.
 
-## 6. 配置项
+After a pull: re-run `php tests/run.php`, and restart PHP-FPM only if `php.ini` changed (the
+code itself is read per request).
 
-优先级：内置默认值 → `conf/config.php` → `SATAPI_*` 环境变量。
+## Versioning
 
-| 环境变量 | 说明 | 默认 |
-| --- | --- | --- |
-| `SATAPI_ADMIN_TOKEN` | 维护写接口令牌（为空则写接口返回 503） | 空 |
-| `SATAPI_RATELIMIT_ENABLED` | 是否启用源站限流 | `0` |
-| `SATAPI_RATELIMIT_PER_MINUTE` | 每 IP 每分钟额度 | `120` |
-| `SATAPI_TRUST_PROXY` | 是否信任 `X-Forwarded-For`（CDN 场景设为 1） | `0` |
-| `SATAPI_REDIS_ENABLED` / `_HOST` / `_PORT` / `_DB` / `_PREFIX` | Redis 配置 | 启用 / 127.0.0.1 / 6379 / 8 / `satapi:` |
-| `SATAPI_VERIFY_TLS` | 上游 TLS 校验（**请勿关闭**） | `1` |
-| `SATAPI_LOG_LEVEL` | `debug|info|warning|error` | `warning` |
-| `SATAPI_CORS_ORIGIN` | 允许的来源，`*` 或逗号列表 | `*` |
+[Semantic Versioning 2.0.0](https://semver.org/). Versions are `MAJOR.MINOR.PATCH`, and a
+release is tagged `vX.Y.Z`.
 
-## 7. 安全须知
+The current version is **`3.3.0+ra`**:
 
-- `data/`、`logs/`、`lib/`、`conf/`、`bin/`、`tests/` **必须**拒绝 Web 访问（nginx 示例已包含）。
-- Redis 维护开关沿用旧键 `maintenance:<endpoint>`，升级后旧运维脚本仍可继续使用。
-- 旧版 `verify_ticket()` 不再使用硬编码密钥：未配置 `AES_KEY`/`AES_IV` 时直接判定失败。
-- 请通过 `SATAPI_ADMIN_TOKEN` 提供管理令牌，不要写入仓库。
+- `3.3.0` — features were added and the `/v1` contract did not change. (New endpoints,
+  caching, SEO plumbing, media encryption: all additive.)
+- `+ra` — **build metadata**, not a pre-release. Under SemVer it is ignored when comparing
+  versions, so `3.3.0+ra` and `3.3.0` are the same release; the suffix is kept because this
+  deployment has always carried it. Compare with tags, not with the string.
 
-## 8. 许可与数据来源
+Earlier releases used a suffix that read like a pre-release: `3.2.12-RA`, where `-RA` means
+"pre-release of 3.2.12" to every SemVer tool. That is exactly the drift this policy exists to
+stop — **anything after `-` is a pre-release, anything after `+` is metadata.**
 
-接口代码 MIT；上游数据版权归 **CelesTrak**、**AMSAT**、**SatNOGS DB（Libre Space Foundation）** 所有，
-请遵守各站点的使用条款并保留署名。
+What bumps what:
+
+| Change | Bump |
+|---|---|
+| A client that worked yesterday breaks (`/v1` shape, status code, removed field) | MAJOR |
+| New endpoint, new parameter, new capability, compatible behaviour change | MINOR |
+| Bug fix, copy change, dependency pin, docs | PATCH |
+
+## Repository layout
+
+```
+index.php               Front controller — every dynamic request lands here
+bootstrap.php           Config, autoloader, error handler
+lib/
+  Api/                  Router + endpoints (Tle, Catalog, AmsatStatus, System, StatusPage)
+  Cache/                Redis + file cache, single-flight locks
+  Data/                 Fetch, parse, validate, merge, preprocess
+  Http/                 Client (TLS, retries, parallel), Request, Response
+  Support/              i18n, Region, Season, Media, Seo, IndexNow, BingWebmaster, Pow…
+  Tle/                  TLE parser and merge
+partials/               The shared page shell and the landing page
+assets/                 Design system, seasonal skins, encrypted media (media is not in git)
+conf/                   Configuration, i18n tables, nginx example (secrets are not in git)
+bin/                    CLI tools: warmup, media encryption, IndexNow, Bing, diagnostics
+tests/                  run.php — the whole suite
+docs/                   API reference and generated reference material
+```
+
+## Media
+
+`assets/film/` and `assets/music/` are **not in this repository**. The server holds those
+files encrypted (`*.mp4.enc`, `*.m4a.enc`, AES-256-CBC, key in `conf/media.php`); publishing
+the plaintext working copy would undo the encryption the site ships, and 75 MB of video would
+make every clone expensive. `bin/media-encrypt.php` encrypts in place and moves the plaintext
+out of the web root; `OPERATIONS.md` documents the whole flow.
+
+## Security
+
+- No credentials are committed. The per-deployment files (`conf/config.php`,
+  `conf/media.php`, `conf/indexnow.php`, `conf/bing.php`) are ignored.
+- The IndexNow key is **not** a secret — the protocol requires it to be published.
+- The media encryption protects against crawlers and hot-linking, **not** against a
+  determined visitor: the key necessarily reaches the browser. It is not DRM.
+- Found a vulnerability? Open an issue, or use the contact address in the privacy policy.
+
+## License
+
+Code: **MIT** — see [LICENSE](LICENSE).
+
+Data is not ours: TLE and satellite metadata come from CelesTrak, AMSAT and SatNOGS DB and
+remain under their own terms. Attribution is rendered on the landing page and carried in the
+API's `meta` block.
