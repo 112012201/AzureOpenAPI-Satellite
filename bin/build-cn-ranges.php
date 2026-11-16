@@ -1,0 +1,215 @@
+<?php
+/**
+ * Build the two address tables the request path matches against, from the APNIC
+ * delegation file.
+ *
+ *   php bin/build-cn-ranges.php            # fetch, compile, report
+ *   php bin/build-cn-ranges.php --check    # report the current tables only
+ *
+ * Two tables, because the site has two different rules and they are not the same
+ * cut of the map:
+ *
+ *   data/cn-ranges.php    CC=CN only          -> mainland jurisdiction, zh-Hans
+ *   data/hmt-ranges.php   CC=HK, MO, TW       -> international jurisdiction, zh-Hant
+ *
+ * Everything else is `intl` (English). Keeping them in separate files is what
+ * makes "in the CN table" mean exactly "mainland": the exclusion of Hong Kong,
+ * Macao and Taiwan is a property of the registry, not a second rule that could
+ * drift out of step with the first.
+ *
+ * Each file is `array($v4, $v6)` where $v4 is a sorted list of [start, end]
+ * integers and $v6 a list of [packed prefix, bit length]. Run this when the
+ * registry changes (quarterly is plenty); nothing here runs at request time.
+ */
+
+require __DIR__ . '/../bootstrap.php';
+
+use SatApi\Config;
+use SatApi\Support\Region;
+
+$checkOnly = in_array('--check', $argv, true);
+
+function say($line)
+{
+    fwrite(STDOUT, $line . "\n");
+}
+
+if ($checkOnly) {
+    foreach (array('mainland' => Region::CN, 'hmt' => Region::HMT) as $label => $which) {
+        $path = $which === Region::CN ? Region::rangesPath() : Region::hmtRangesPath();
+        list($v4, $v6) = $which === Region::CN ? Region::rangeCount() : Region::hmtRangeCount();
+        say(str_pad($label, 9) . $path . (is_file($path) ? ' (' . filesize($path) . ' bytes, v4=' . $v4 . ' v6=' . $v6 . ')' : ' (missing)'));
+    }
+    exit((is_file(Region::rangesPath()) && is_file(Region::hmtRangesPath())) ? 0 : 1);
+}
+
+$url = 'https://ftp.apnic.net/stats/apnic/delegated-apnic-latest';
+say('fetch    ' . $url);
+
+$body = false;
+if (function_exists('curl_init')) {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, array(
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_TIMEOUT        => 60,
+        CURLOPT_USERAGENT      => (string) Config::get('http.user_agent', 'AzureOpenAPI-for-Satellite'),
+    ));
+    $body = curl_exec($ch);
+    $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($body === false || $status !== 200) {
+        say('FAIL     APNIC answered HTTP ' . $status);
+        exit(1);
+    }
+} else {
+    $body = @file_get_contents($url);
+    if ($body === false) {
+        say('FAIL     cannot fetch (no curl, file_get_contents failed)');
+        exit(1);
+    }
+}
+
+// Collect per country code, then compile each set the same way.
+$byCountry = array();
+foreach (explode("\n", (string) $body) as $line) {
+    $line = trim($line);
+    if ($line === '' || $line[0] === '#') {
+        continue;
+    }
+    $cols = explode('|', $line);
+    if (count($cols) < 7) {
+        continue;
+    }
+    // registry|cc|type|start|value|date|status[|extensions]
+    if ($cols[0] !== 'apnic' || ($cols[6] !== 'allocated' && $cols[6] !== 'assigned')) {
+        continue;
+    }
+    $cc = strtoupper($cols[1]);
+    if (!isset($byCountry[$cc])) {
+        $byCountry[$cc] = array('v4' => array(), 'v6' => array(), 'lines' => 0);
+    }
+    $type = $cols[2];
+    $start = $cols[3];
+    $value = (int) $cols[4];
+
+    if ($type === 'ipv4') {
+        $first = ip2long($start);
+        if ($first === false) {
+            continue;
+        }
+        // APNIC gives a COUNT of addresses, not a prefix length.
+        $byCountry[$cc]['v4'][] = array($first, $first + $value - 1);
+        $byCountry[$cc]['lines']++;
+    } elseif ($type === 'ipv6') {
+        $packed = @inet_pton($start);
+        if ($packed === false) {
+            continue;
+        }
+        $byCountry[$cc]['v6'][] = array($packed, $value);
+        $byCountry[$cc]['lines']++;
+    }
+}
+
+/**
+ * Coalesce touching or overlapping IPv4 ranges so the request path scans a sorted,
+ * gap-free list: a binary-friendly shape and a smaller file.
+ *
+ * @param array<int,array{0:int,1:int}> $v4
+ * @return array<int,array{0:int,1:int}>
+ */
+function coalesce(array $v4)
+{
+    usort($v4, static function ($a, $b) {
+        return $a[0] <=> $b[0];
+    });
+    $merged = array();
+    foreach ($v4 as $range) {
+        $last = count($merged) - 1;
+        if ($last >= 0 && $range[0] <= $merged[$last][1] + 1) {
+            $merged[$last][1] = max($merged[$last][1], $range[1]);
+        } else {
+            $merged[] = $range;
+        }
+    }
+
+    return $merged;
+}
+
+/**
+ * @param array<int,array{0:string,1:int}> $v6
+ * @return array<int,array{0:string,1:int}>
+ */
+function sortV6(array $v6)
+{
+    usort($v6, static function ($a, $b) {
+        return strcmp($a[0], $b[0]) ?: ($a[1] <=> $b[1]);
+    });
+
+    return $v6;
+}
+
+/**
+ * Write one table atomically.
+ */
+function writeTable($target, array $table, $url, $label, $countries)
+{
+    $payload = "<?php\n"
+        . "/* Generated by bin/build-cn-ranges.php from " . $url . "\n"
+        . "   Countries: " . $countries . " (" . $label . ")\n"
+        . "   Do not edit. " . gmdate('Y-m-d') . " · IPv4 ranges: " . count($table[0])
+        . " · IPv6 prefixes: " . count($table[1]) . " */\n"
+        . 'return ' . var_export($table, true) . ";\n";
+
+    $tmp = $target . '.' . getmypid() . '.tmp';
+    if (@file_put_contents($tmp, $payload, LOCK_EX) === false) {
+        say('FAIL     cannot write ' . $tmp);
+
+        return false;
+    }
+    @chmod($tmp, 0644);
+    if (!@rename($tmp, $target)) {
+        @unlink($tmp);
+        say('FAIL     cannot replace ' . $target);
+
+        return false;
+    }
+    say('wrote    ' . $target . ' (' . filesize($target) . ' bytes, v4=' . count($table[0]) . ' v6=' . count($table[1]) . ')');
+
+    return true;
+}
+
+$sets = array(
+    array('countries' => array('CN'), 'target' => Region::rangesPath(), 'label' => 'mainland'),
+    array('countries' => array('HK', 'MO', 'TW'), 'target' => Region::hmtRangesPath(), 'label' => 'Hong Kong, Macao, Taiwan'),
+);
+
+foreach ($sets as $set) {
+    $v4 = array();
+    $v6 = array();
+    $total = 0;
+    foreach ($set['countries'] as $cc) {
+        if (!isset($byCountry[$cc])) {
+            say('FAIL     no ' . $cc . ' allocations parsed');
+
+            return;   // top-level file, a bare return ends it
+        }
+        $v4 = array_merge($v4, $byCountry[$cc]['v4']);
+        $v6 = array_merge($v6, $byCountry[$cc]['v6']);
+        $total += $byCountry[$cc]['lines'];
+    }
+    if ($total === 0 || count($v4) === 0) {
+        say('FAIL     empty ' . $set['label'] . ' set');
+        exit(1);
+    }
+    writeTable($set['target'], array(coalesce($v4), sortV6($v6)), $url, $set['label'], implode('+', $set['countries']));
+}
+
+// The tables are cached per process, so ask the freshly written files.
+say('probe    223.5.5.5 (AliDNS, mainland) -> ' . Region::zoneForIp('223.5.5.5'));
+say('probe    8.8.8.8 (Google)             -> ' . Region::zoneForIp('8.8.8.8'));
+say('probe    1.1.1.1 (Cloudflare)         -> ' . Region::zoneForIp('1.1.1.1'));
+foreach (array('hk' => '203.198.0.1', 'tw' => '168.95.1.1', 'mo' => '202.175.0.1') as $label => $probe) {
+    say('probe    ' . $probe . ' (' . $label . ') -> ' . Region::zoneForIp($probe));
+}

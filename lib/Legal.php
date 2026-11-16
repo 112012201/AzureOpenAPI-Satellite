@@ -6,6 +6,8 @@ use SatApi\Http\Request;
 use SatApi\Http\Response;
 use SatApi\Support\Consent;
 use SatApi\Support\I18n;
+use SatApi\Support\LocalePicker;
+use SatApi\Support\Region;
 
 /**
  * Privacy policy, terms of service and the legal index.
@@ -32,7 +34,8 @@ use SatApi\Support\I18n;
  */
 final class Legal
 {
-    const UPDATED = '2026-10-07';
+    /** Effective date of the current revision of every document here. */
+    const UPDATED = '2026-11-12';
 
     /**
      * @return string|null 'index'|'privacy'|'terms', or null when the path is not ours
@@ -52,6 +55,11 @@ final class Legal
         if ($path === '/terms' || $path === '/legal/terms') {
             return 'terms';
         }
+        // The "why some links are not offered" notice: a legal document, so it is
+        // served on the same path as the other two (no loading screen, no challenge).
+        if ($path === '/no-acceleration' || $path === '/legal/no-acceleration') {
+            return 'no-accel';
+        }
 
         return null;
     }
@@ -59,15 +67,96 @@ final class Legal
     public static function render(Request $request, $section)
     {
         $locale = I18n::resolve($request);
-        $code = $locale['code'];
-        $homepage = rtrim((string) Config::get('service.homepage', ''), '/');
+        // Resolve the seasonal skin before anything reads it: the head, the body
+        // class and the shell's badge all consult it, and the shell is built later.
+        \SatApi\Support\Season::boot($request);
+
+        /*
+         * Two sets of documents, one address each.
+         *
+         * Which set is published is decided by Region (the client address, matched
+         * against the APNIC tables), never by a cookie the visitor could not see and
+         * never by the CDN's opinion alone. `?region=cn|hmt|intl` exists as an
+         * explicit document selector for an operator or a reader behind a proxy; when
+         * it is used the response is marked no-store, because a document chosen by
+         * the visitor must not become the cached answer for everybody else.
+         */
+        $region = Region::forRequest($request);
+        $zone = (string) $region['zone'];
+        $regionCode = (string) $region['region'];
+        $mainland = !empty($region['mainland']);
+        $pinned = $region['source'] === 'query';
+
+        /*
+         * The mainland edition is published in Simplified Chinese only.
+         *
+         * Not a translation of convenience: it is the edition the local law expects,
+         * it is the only one this site publishes for that jurisdiction, and the page
+         * therefore offers no language selector at all (there would be nothing to
+         * switch to). Forcing the language here rather than merely hiding the picker
+         * also stops a stale cookie from leaving a reader on English with no way back
+         * -- the international edition is one documented link away instead.
+         */
+        if ($mainland) {
+            $locale['code'] = 'zh-Hans';
+            $locale['tag'] = 'zh-Hans';
+        }
+        $code = (string) $locale['code'];
         $esc = static function ($value) {
             return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         };
 
-        $titles = array('index' => 'legal.title', 'privacy' => 'legal.privacy', 'terms' => 'legal.terms');
+        $titles = array(
+            'index'    => 'legal.title',
+            'privacy'  => 'legal.privacy',
+            'terms'    => 'legal.terms',
+            'no-accel' => 'legal.no_accel',
+        );
+        /*
+         * The section key is not the address. 'no-accel' is the internal name of the
+         * acceleration notice, whose canonical URL is /no-acceleration -- and /no-accel
+         * is a 301 to it. Building the canonical out of the key pointed the notice at a
+         * URL that redirects, which a search engine answers by ignoring the claim.
+         */
+        $paths = array(
+            'index'    => '/legal',
+            'privacy'  => '/privacy',
+            'terms'    => '/terms',
+            'no-accel' => '/no-acceleration',
+        );
+        $path = $paths[$section];
+        $serviceName = (string) Config::get('service.name', '');
         $title = I18n::translate($code, $titles[$section], $section);
-        $canonical = $homepage . ($section === 'index' ? '/legal' : '/' . $section);
+        /*
+         * One description per document, not one for the section.
+         *
+         * All four documents used to share a single 74-character sentence, which
+         * describes the section rather than any page in it -- and identical meta
+         * descriptions across four URLs is a duplicate-description report waiting to
+         * happen. The section-wide string stays as the fallback so a future document
+         * degrades to a sentence rather than to its bare title.
+         */
+        $descKeys = array(
+            'index'    => 'legal.meta.description',
+            'privacy'  => 'legal.meta.description.privacy',
+            'terms'    => 'legal.meta.description.terms',
+            'no-accel' => 'legal.meta.description.no_accel',
+        );
+        $description = I18n::translate(
+            $code,
+            $descKeys[$section],
+            I18n::translate($code, 'legal.meta.description', $title)
+        );
+        $articleTitle = $title . ' · ' . $serviceName;
+        $overview = I18n::translate($code, 'legal.overview', 'Legal');
+
+        $seoNodes = array(\SatApi\Support\Seo::webPage($path, $articleTitle, $code, $description));
+        if ($section !== 'index') {
+            $seoNodes[] = \SatApi\Support\Seo::breadcrumbs($path, array(
+                array($overview, '/legal'),
+                array($title, $path),
+            ));
+        }
 
         $head = array(
             '<!DOCTYPE html>',
@@ -75,41 +164,215 @@ final class Legal
             '<head>',
             '<meta charset="utf-8">',
             '<meta name="viewport" content="width=device-width, initial-scale=1">',
-            '<title>' . $esc($title) . ' &middot; ' . $esc((string) Config::get('service.name', '')) . '</title>',
-            '<meta name="description" content="' . $esc(I18n::translate($code, 'legal.meta.description', $title)) . '">',
-            '<link rel="canonical" href="' . $esc($canonical) . '">',
-            '<link rel="alternate" hreflang="zh-Hans" href="' . $esc($canonical) . '?lang=zh-Hans">',
-            '<link rel="alternate" hreflang="zh-Hant" href="' . $esc($canonical) . '?lang=zh-Hant">',
-            '<link rel="alternate" hreflang="en" href="' . $esc($canonical) . '?lang=en">',
-            '<link rel="alternate" hreflang="x-default" href="' . $esc($canonical) . '">',
-            '<meta name="theme-color" content="#0891b2" media="(prefers-color-scheme: light)">',
-            '<meta name="theme-color" content="#080f18" media="(prefers-color-scheme: dark)">',
-            '<link rel="icon" href="/favicon.ico" sizes="16x16 32x32">',
-            '<link rel="stylesheet" href="/assets/app.css">',
-            '</head>',
+            '<title>' . $esc($articleTitle) . '</title>',
         );
+        /*
+         * Indexable now, and deliberately.
+         *
+         * These documents used to be noindex on the mainland edition while the
+         * sitemap listed them at the same time -- a contradiction a crawler resolves
+         * by believing the noindex and discarding the entry. They are compliance
+         * evidence: a reader looking for the privacy policy should find it, and a
+         * site that publishes its terms is easier to trust than one that hides them.
+         * The one case that stays noindex is `?region=`, a document the visitor
+         * pinned by hand: that is not the address other readers get, so it must not
+         * become the indexed representation.
+         */
+        foreach (\SatApi\Support\Seo::head(array(
+            'path'        => $path,
+            'title'       => $articleTitle,
+            'description' => $description,
+            'lang'        => $code,
+            'index'       => !$pinned,
+            'nodes'       => $seoNodes,
+        )) as $seoLine) {
+            $head[] = $seoLine;
+        }
+        $head[] = '<meta name="theme-color" content="#0891b2" media="(prefers-color-scheme: light)">';
+        $head[] = '<meta name="theme-color" content="#080f18" media="(prefers-color-scheme: dark)">';
+        $head[] = '<link rel="icon" href="/favicon.ico" sizes="16x16 32x32">';
+        $head[] = '<link rel="stylesheet" href="/assets/app.css">';
+        $head[] = '<link rel="stylesheet" href="/assets/metro.css">';
+        // Seasonal skin last: a skin overrides the layers under it or it is not a skin.
+        foreach (\SatApi\Support\Season::head() as $seasonLine) {
+            $head[] = $seasonLine;
+        }
+        $head[] = '</head>';
 
+        // A legal document is not a challenge: no loading screen and no proof of
+        // work, which is what bootOwnOverlay => false tells the shell. The consent
+        // dialog and the announcement bar stay, because they are the two things a
+        // visitor must be able to reach from a policy page.
         $shell = self::capture(__DIR__ . '/../partials/shell.php', array(
             'bootPage'       => 'legal',
             'bootOwnConsent' => true,
+            'bootOwnOverlay' => false,
         ));
 
         $consent = Consent::current();
         $bodyAttrs = ' data-page="legal" data-locale="' . $esc($code) . '"'
             . ' data-consent-required="' . (is_array($consent) && empty($consent['accepted']) ? '1' : '0') . '"';
 
+        $bodyAttrs = ' class="metro' . \SatApi\Support\Season::bodyClass() . '"'
+            . ' data-page="legal" data-locale="' . $esc($code) . '"'
+            . ' data-region="' . $esc($zone) . '"'
+            . \SatApi\Support\Season::bodyAttrs()
+            . ' data-consent-required="' . (is_array($consent) && empty($consent['accepted']) ? '1' : '0') . '"';
+
         $document = implode("\n", $head) . "\n<body" . $bodyAttrs . ">"
             . $shell
             . '<main class="legal" id="main"><div class="legal__wrap">'
-            . self::chrome($section, $code, $esc)
-            . self::article($section, $code, $esc)
+            . self::chrome($section, $locale, $esc)
+            . self::articleFor($section, $code, $esc, $mainland, $locale)
             . '</div></main>'
             . '</body>' . "\n" . '</html>' . "\n";
 
-        Response::raw($document, 'text/html; charset=utf-8', 200, array(
-            'Cache-Control' => 'public, max-age=3600, s-maxage=3600',
-            'Vary'          => 'Accept-Language, Cookie, Accept-Encoding',
-        ));
+        // A cache that cannot key on the address must not store an answer that
+        // depends on it. The international document is cacheable as before; the
+        // mainland one (and any explicitly selected one) is not.
+        // Same rule as the landing page: a document whose default language is chosen
+        // by the address is not stored by a cache that cannot key on it.
+        $addressDependent = $zone !== Region::INTL;
+        $headers = array(
+            'Cache-Control' => ($addressDependent || $pinned || \SatApi\Support\Season::pinned())
+                ? 'no-store, max-age=0'
+                : 'public, max-age=3600, s-maxage=3600',
+            'Vary'          => 'Accept-Language, Accept-Encoding',
+            'X-Region'      => $zone,
+        );
+        // noindex is kept for the one case where the visitor chose the document by
+        // hand: ?region= is not the address anybody else receives, so it must not
+        // become the indexed representation of the page. The mainland edition is no
+        // longer excluded -- it is the edition local readers get, and a policy page
+        // that cannot be found is a policy page nobody can cite.
+        if ($pinned) {
+            $headers['X-Robots-Tag'] = 'noindex';
+        }
+
+        Response::raw($document, 'text/html; charset=utf-8', 200, $headers);
+    }
+
+    /* ------------------------------------------------------- documents by region */
+
+    /**
+     * Which document set applies, and which article renders it.
+     *
+     * The international documents are the long-form ones this class has always
+     * published. The mainland set lives in conf/legal-docs.php because it is not a
+     * translation: local law governs, some accelerated links are not offered, and the
+     * anti-fraud notice belongs in the document itself. The acceleration notice (2C)
+     * is the same text in both sets -- only whether it applies changes with the
+     * reader -- so it is served from the same file.
+     */
+    private static function articleFor($section, $active, callable $esc, $mainland, array $locale = array())
+    {
+        if ($section === 'no-accel') {
+            return self::articleFromBlocks('no-accel', $active, $esc, $section, $mainland);
+        }
+        if ($mainland && ($section === 'privacy' || $section === 'terms')) {
+            return self::articleFromBlocks($section . '-cn', $active, $esc, $section, $mainland);
+        }
+
+        return self::article($section, $active, $esc);
+    }
+
+    /** 2A for the terms, 2B for the privacy policy, 2C for the notice. */
+    private static function versionLabel($section)
+    {
+        $labels = array('index' => '2', 'privacy' => '2B', 'terms' => '2A', 'no-accel' => '2C');
+
+        return isset($labels[$section]) ? $labels[$section] : '2';
+    }
+
+    /** The documents in conf/legal-docs.php, keyed by document id. */
+    private static function documents()
+    {
+        static $docs = null;
+        if ($docs === null) {
+            $file = __DIR__ . '/../conf/legal-docs.php';
+            $docs = is_file($file) ? (array) require $file : array();
+        }
+
+        return $docs;
+    }
+
+    /**
+     * Render one document from conf/legal-docs.php.
+     *
+     * A document is a list of plain-text blocks; this is the only renderer, so a new
+     * document needs no HTML and no escaping care at the call site.
+     */
+    private static function articleFromBlocks($id, $active, callable $esc, $section = 'index', $mainland = false)
+    {
+        $docs = self::documents();
+        if (!isset($docs[$id])) {
+            return '<p class="legal__meta">' . $esc('Document unavailable.') . '</p>';
+        }
+        $doc = $docs[$id];
+        $locale = isset($doc[$active]) ? $doc[$active] : (isset($doc['en']) ? $doc['en'] : reset($doc));
+
+        // self::loc() returns the per-locale <span> markup, so it is concatenated
+        // as-is; escaping it here would print the markup instead of the word.
+        $out = '<p class="legal__meta">'
+            . self::loc(array('en' => 'Version', 'zh-Hans' => '版本', 'zh-Hant' => '版本'), $active)
+            . ' ' . $esc((string) $doc['version'])
+            . ' &middot; '
+            . self::loc(array('en' => 'Effective', 'zh-Hans' => '生效日期', 'zh-Hant' => '生效日期'), $active)
+            . ' ' . $esc((string) $doc['updated'])
+            . '</p>';
+
+        $out .= '<h1>' . $esc((string) $locale['title']) . '</h1>';
+        if (!empty($locale['lede'])) {
+            $out .= '<p class="legal__lede">' . $esc((string) $locale['lede']) . '</p>';
+        }
+
+        foreach ((array) $locale['blocks'] as $block) {
+            if (isset($block['h'])) {
+                $out .= '<h2>' . $esc((string) $block['h']) . '</h2>';
+            } elseif (isset($block['p'])) {
+                $out .= '<p>' . $esc((string) $block['p']) . '</p>';
+            } elseif (isset($block['ul'])) {
+                $out .= '<ul>';
+                foreach ((array) $block['ul'] as $item) {
+                    $out .= '<li>' . $esc((string) $item) . '</li>';
+                }
+                $out .= '</ul>';
+            } elseif (isset($block['note'])) {
+                $out .= '<aside class="legal__notice" role="note">' . $esc((string) $block['note']) . '</aside>';
+            }
+        }
+
+        // The two cross-links are the same in every document, so they are not repeated
+        // in the content file. The `?region=intl` link is section-aware, and on the
+        // mainland edition it is the documented way out: that page offers no language
+        // selector, so this is where a reader who needs the English or Traditional text
+        // is sent instead.
+        $sectionUrl = array(
+            'index'    => '/legal',
+            'privacy'  => '/privacy',
+            'terms'    => '/terms',
+            'no-accel' => '/no-acceleration',
+        );
+        $here = isset($sectionUrl[$section]) ? $sectionUrl[$section] : '/legal';
+        $intlLabel = $mainland
+            ? array(
+                'en'      => 'International edition (English / Traditional Chinese)',
+                'zh-Hans' => '国际版（英文／繁體中文）',
+                'zh-Hant' => '國際版（英文／簡體中文）',
+            )
+            : array(
+                'en'      => 'International edition',
+                'zh-Hans' => '国际版本',
+                'zh-Hant' => '國際版本',
+            );
+        $out .= '<p class="legal__meta">'
+            . '<a href="' . $esc($here) . '?region=intl" rel="alternate">'
+            . self::loc($intlLabel, $active)
+            . '</a> &middot; <a href="/no-acceleration">'
+            . self::loc(array('en' => 'Acceleration notice', 'zh-Hans' => '不加速说明', 'zh-Hant' => '不加速說明'), $active)
+            . '</a></p>';
+
+        return $out;
     }
 
     /* ------------------------------------------------------------------ i18n */
@@ -183,19 +446,32 @@ final class Legal
         return (string) ob_get_clean();
     }
 
-    private static function chrome($section, $active, callable $esc)
+    /**
+     * The strip above the article: language choice, then section navigation.
+     *
+     * The mainland edition renders NO language selector. That is the requirement, and
+     * it is also the honest UI: that edition exists in one language, so a control with
+     * nothing behind it would be a dead end. The international edition keeps the full
+     * picker, filtered to what the zone serves by LocalePicker.
+     *
+     * @param array<string,mixed> $locale a value from I18n::resolve()
+     */
+    private static function chrome($section, array $locale, callable $esc)
     {
-        $switcher = '<div class="lang" role="group" aria-label="'
-            . $esc(I18n::translate($active, 'nav.language', 'Language')) . '">';
-        foreach (I18n::switcher() as $entry) {
-            $isActive = $entry['code'] === $active;
-            $switcher .= '<button class="lang__btn' . ($isActive ? ' is-active' : '') . '" type="button"'
-                . ' data-lang-choice="' . $esc($entry['code']) . '"'
-                . ' aria-pressed="' . ($isActive ? 'true' : 'false') . '"'
-                . ' hreflang="' . $esc($entry['html_lang']) . '">'
-                . $esc($entry['name']) . '</button>';
-        }
-        $switcher .= '</div>';
+        $active = isset($locale['code']) ? (string) $locale['code'] : 'en';
+        $mainland = isset($locale['zone']) && $locale['zone'] === Region::CN;
+
+        $switcher = $mainland ? '' : LocalePicker::render($locale, 'lang');
+
+        // Stated in the document itself, not only implied by the missing picker: a
+        // reader who expected English should know why the page is in Chinese and where
+        // the other edition is (the link is at the foot of the article).
+        $only = $mainland
+            ? '<p class="legal__only">'
+                . $esc(I18n::translate('zh-Hans', 'legal.mainland_only',
+                    '本页为依据中国大陆法律法规发布的版本，仅提供简体中文。'))
+                . '</p>'
+            : '';
 
         $nav = '<nav class="legal__nav" aria-label="'
             . $esc(I18n::translate($active, 'legal.title', 'Legal')) . '">';
@@ -203,35 +479,39 @@ final class Legal
             array('/legal', 'legal.overview', 'Overview'),
             array('/privacy', 'legal.privacy', 'Privacy policy'),
             array('/terms', 'legal.terms', 'Terms of service'),
+            array('/no-acceleration', 'legal.no_accel', 'Acceleration notice'),
             array('/docs', 'nav.docs', 'API docs'),
         );
         foreach ($items as $item) {
             $isCurrent = ($item[0] === '/legal' && $section === 'index')
                 || ($item[0] === '/privacy' && $section === 'privacy')
-                || ($item[0] === '/terms' && $section === 'terms');
+                || ($item[0] === '/terms' && $section === 'terms')
+                || ($item[0] === '/no-acceleration' && $section === 'no-accel');
             $nav .= '<a href="' . $esc($item[0]) . '"' . ($isCurrent ? ' aria-current="page"' : '') . '>'
                 . $esc(I18n::translate($active, $item[1], $item[2])) . '</a>';
         }
         $nav .= '</nav>';
 
-        $notice = '<aside class="legal__notice" role="note">'
-            . self::loc(array(
-                'en'      => 'This document is a template prepared for this service. It is not legal advice, and it has not been reviewed by a lawyer. Have it reviewed before relying on it.',
-                'zh-Hans' => '本文件是为本服务准备的模板文本，不构成法律意见，也尚未经过律师审阅。正式依赖前请交由法务复核。',
-                'zh-Hant' => '本文件是為本服務準備的範本文字，不構成法律意見，也尚未經律師審閱。正式依賴前請交由法務複核。',
-            ), $active)
-            . '</aside>';
-
-        return $switcher . $nav . $notice;
+        return $switcher . $nav . $only;
     }
 
     /* ------------------------------------------------------------- article */
 
     private static function article($section, $active, callable $esc)
     {
-        $version = (int) Config::get('consent.version', 1);
+        // Version labels are per document: 2A terms, 2B privacy, 2C the
+        // acceleration notice. They are not the consent protocol's version, which
+        // stays an integer and keeps its own meaning.
+        $version = self::versionLabel($section);
+        // The consent protocol version is an integer and is NOT the document
+        // label: ?consent_version=2 is a wire contract, 2A/2B are revisions.
+        $protocolVersion = (int) Config::get('consent.version', 1);
         $name = (string) Config::get('service.name', 'AzureOpenAPI for Satellite');
-        $homepage = rtrim((string) Config::get('service.homepage', ''), '/');
+        // "The service home" inside the terms is THIS site, not the operator's own
+        // site: service.homepage names the operator, and a document that calls that
+        // address "the service home" sends a reader somewhere else while telling them
+        // it is the same place.
+        $homepage = rtrim(\SatApi\Support\Seo::site(), '/');
         // Contact: prefer a real mailbox when one is configured, otherwise fall back
         // to the project's public contact URL, and only then to a generic phrase.
         // Building the HTML here keeps the three locale strings below readable.
@@ -290,8 +570,8 @@ final class Legal
                     'zh-Hans' => 'API 客户端可以用查询参数或请求头声明已同意，使该声明随请求一起传递，无需会话：',
                     'zh-Hant' => 'API 用戶端可以用查詢參數或請求標頭聲明已同意，使該聲明隨請求一起傳遞，無需工作階段：',
                 ), $active)
-                . '<pre class="legal__code"><code>?consent=privacy,terms&amp;consent_version=' . $version . "\n"
-                . 'X-Consent: privacy,terms;version=' . $version . '</code></pre>'
+                . '<pre class="legal__code"><code>?consent=privacy,terms&amp;consent_version=' . $protocolVersion . "\n"
+                . 'X-Consent: privacy,terms;version=' . $protocolVersion . '</code></pre>'
                 . self::p(array(
                     'en'      => 'While enforcement is disabled the acknowledgement is recorded and reported in the response (meta.consent, X-Consent-Required) but nothing is blocked. The operator can turn enforcement on, at which point an unacknowledged API request receives HTTP 451 Unavailable For Legal Reasons with the same details in the body.',
                     'zh-Hans' => '强制模式关闭时，同意状态会被记录并在响应中标注（meta.consent、X-Consent-Required），但不会阻断请求。运营方可以开启强制模式，此时未声明的 API 请求会收到 HTTP 451（因法律原因不可用），响应体包含同样的说明信息。',

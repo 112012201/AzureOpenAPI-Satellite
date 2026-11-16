@@ -1,0 +1,87 @@
+/* ==========================================================================
+   christmas.css — Christmas: evergreen, red and gold under a night sky.
+
+   24 December 00:00 - 26 December 23:59, with 25 December as the day the music changes
+   (conf/themes.php) -- the palette does not switch for that one day, because a visitor
+   should not be able to tell which of two stylesheets they got, only which song.
+
+   The background is drawn by christmas.js: a night-sky gradient, stars, and a treeline.
+   The rules here only hand it the palette and keep the document above it.
+
+   Contrast, measured on this palette: #eef6f2 on #0a1b26 is 14.8:1, #a9c4cf on #0a1b26
+   is 8.6:1, #0a1b26 on #d8b45a (the gold button) is 9.9:1.
+   ========================================================================== */
+
+body.christmas {
+  /* app.css token family */
+  --bg: #0a1b26;
+  --bg-elev: #102a37;
+  --bg-sunken: #06121a;
+  --fg: #eef6f2;
+  --fg-muted: #a9c4cf;
+  --line: #2a4a58;
+  --accent: #d8b45a;
+  --accent-ink: #eccf86;
+  --accent-soft: rgba(216, 180, 90, 0.16);
+  --accent-2: #c0483c;
+  --accent-2-ink: #e07a6c;
+  --ok: #7fd6a0;
+  --warn: #e6c05a;
+  --bad: #e8796b;
+  --shadow: none;
+
+  /* tokens.css role family */
+  --surface: #0a1b26;
+  --surface-dim: #06121a;
+  --surface-container-low: #0d2531;
+  --surface-container: #102a37;
+  --surface-container-high: #16384a;
+  --on-surface: #eef6f2;
+  --on-surface-variant: #a9c4cf;
+  --outline: #3d6675;
+  --outline-variant: #23414f;
+  --primary: #d8b45a;
+  --on-primary: #0a1b26;
+  --primary-container: #23414f;
+  --on-primary-container: #eef6f2;
+  --card-bg: #0d2531;
+  --card-border: #23414f;
+  --btn-bg: transparent;
+  --field-bg: #0d2531;
+  --field-border: #3d6675;
+  --code-bg: #06121a;
+  --dialog-bg: #0d2531;
+  --header-bg: #0d2531;
+  --header-border: #23414f;
+
+  /* metro.css derived family */
+  --metro-tile: #102a37;
+  --metro-tile-quiet: #0d2531;
+  --metro-line: #23414f;
+  --metro-ink: #eef6f2;
+  --metro-ink-2: #a9c4cf;
+  --metro-accent: #d8b45a;
+  --metro-accent-ink: #eccf86;
+  /* Evergreen, not red: the red is the accent for highlights, the ground is the tree. */
+  --metro-fill: #1d5b45;
+  --metro-on-fill: #effaf4;
+
+  color-scheme: dark;
+  color: var(--fg);
+  background-color: var(--bg);
+  /* The canvas draws the sky and the trees; these gradients only guarantee a sky even
+     if christmas.js never runs. */
+  background-image:
+    linear-gradient(180deg, #051019 0%, #0a1f2c 46%, #0d2a2a 100%);
+  background-attachment: fixed;
+}
+
+body.christmas .fx { opacity: 1; }
+
+/* A garland rule under the header: the one place this theme spends a gradient. */
+body.christmas .site-header {
+  border-bottom-color: #2f5c4a;
+}
+body.christmas .site-footer {
+  border-top-color: #d8b45a;
+}

@@ -264,7 +264,7 @@ final class Parser
     {
         $out = array();
         foreach ($records as $record) {
-            $out[] = array(
+            $entry = array(
                 'norad_id'   => $record['norad_id'],
                 'name'       => $record['name'],
                 'epoch'      => $record['epoch_iso'],
@@ -273,6 +273,32 @@ final class Parser
                 'tle'        => array($record['line1'], $record['line2']),
                 'checksum_ok' => $record['checksum_ok'],
             );
+
+            // ------------------------------------------------------------------
+            // Additive fields produced by Data\Prepared.
+            //
+            // Additive on purpose: a client that ignores them sees exactly the
+            // document it saw before, and a client that wants an inclination no
+            // longer has to know that the eccentricity column omits its leading
+            // "0.". `sources` lists every upstream that carried this catalogue
+            // number, which is what makes the merge auditable instead of a silent
+            // winner-takes-all.
+            //
+            // Emitted only when present, so a record that went through the old code
+            // path (tests, a call to Parser::merge directly) is byte-identical to
+            // how it was before.
+            // ------------------------------------------------------------------
+            if (isset($record['orbit']) && is_array($record['orbit']) && $record['orbit'] !== array()) {
+                $entry['orbit'] = $record['orbit'];
+            }
+            if (isset($record['sources']) && is_array($record['sources']) && count($record['sources']) > 0) {
+                $entry['sources'] = array_values($record['sources']);
+            }
+            if (isset($record['checksum_expected'])) {
+                $entry['checksum_expected'] = $record['checksum_expected'];
+            }
+
+            $out[] = $entry;
         }
 
         return $out;

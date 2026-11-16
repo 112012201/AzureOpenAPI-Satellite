@@ -2,6 +2,10 @@
 # Human documentation and the interactive reference are public; the API paths
 # are meant for machines and are not useful to crawlers.
 # https://www.rfc-editor.org/rfc/rfc9309
+#
+# The Sitemap line must name the host the pages are canonically served from
+# (Config `seo.site`). It used to name satellite.api.authskin.xyz, which does not
+# resolve -- a sitemap reference a crawler cannot even fetch.
 
 User-agent: *
 Allow: /$
@@ -32,4 +36,4 @@ Disallow: /logs/
 Disallow: /conf/
 Disallow: /tests/
 Disallow: /bin/
-Sitemap: https://satellite.api.authskin.xyz/sitemap.xml
+Sitemap: https://satellite.authskin.xyz/sitemap.xml

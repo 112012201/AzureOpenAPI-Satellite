@@ -29,6 +29,10 @@ final class Maintenance
         'satnogs_satellites',
         'satnogs_transmitters',
         'amsat_status',
+        // AMSAT's own v1 API, relayed by Api\Endpoints\AmsatApi. A separate switch
+        // from amsat_status on purpose: the scraped status page and the upstream JSON
+        // API fail independently, so taking one down must not silence the other.
+        'amsat_api',
         'health',
     );
 

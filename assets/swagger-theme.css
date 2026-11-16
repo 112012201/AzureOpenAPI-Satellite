@@ -75,6 +75,42 @@
 }
 
 /*
+ * The two stamps beside the API title: the service version and the OAS revision.
+ *
+ * Swagger marks only the SECOND of them with `.version-stamp`; the first is a bare
+ * <small>. Their text lives in a <pre class="version">, which Swagger styles as
+ * inline code -- and inside the title it inherited a colour close enough to the
+ * plate that the badge rendered as an empty box (that is the "文档部分 UI 颜色问题"
+ * report: a grey rectangle and a teal rectangle, both unreadable). Both are therefore
+ * forced to one plate with one ink, and -webkit-text-fill-color is set explicitly
+ * because a text-fill override anywhere above this would survive a plain `color`.
+ */
+.swagger-ui main .info .title > span > small,
+.swagger-ui main .info .title > span > small.version-stamp,
+.swagger-ui main .info .title > span > small > pre,
+.swagger-ui main .info .title > span > small > pre.version,
+.swagger-ui .info .title small,
+.swagger-ui .info .title small.version-stamp,
+.swagger-ui .info .title small pre.version {
+    background: #0e7490 !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    padding: 1px 7px !important;
+    margin: 0 0 0 8px !important;
+    display: inline-block !important;
+    font-family: var(--font-mono, ui-monospace, Consolas, monospace) !important;
+    font-size: 0.72rem !important;
+    font-weight: 600 !important;
+    line-height: 1.5 !important;
+    letter-spacing: 0.02em !important;
+    vertical-align: middle !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+}
+
+/*
  * The title, its wrapper and the server row must carry the site's font stack explicitly.
  *
  * They were listed in the colour block above but never given a family, so they fell through to

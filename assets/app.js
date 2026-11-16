@@ -24,6 +24,15 @@
     return el && el.getAttribute ? el.getAttribute(name) : null;
   }
 
+  /* One string from the shell's runtime-copy table, with a literal fallback so a
+     page that carries no boot payload (the generated 404, for instance) still says
+     something rather than printing "undefined". */
+  function ui(key, fallback) {
+    var boot = window.__SATAPI_BOOT__;
+    var table = boot && boot.ui;
+    return (table && typeof table[key] === 'string' && table[key]) ? table[key] : fallback;
+  }
+
   /* Element.closest is not available everywhere, so walk up by hand. */
   function closest(el, selector) {
     var node = el;
@@ -89,7 +98,9 @@
 
     function paint(mode) {
       all('[data-theme-toggle]').forEach(function (button) {
-        var label = mode === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+        /* The label is copy, so it comes from the string table the shell handed over
+           in __SATAPI_BOOT__.ui rather than from a literal here. */
+        var label = mode === 'dark' ? ui('theme.light', 'Switch to light theme') : ui('theme.dark', 'Switch to dark theme');
         button.setAttribute('aria-label', label);
         button.setAttribute('title', label);
         button.setAttribute('aria-pressed', mode === 'dark' ? 'true' : 'false');
@@ -218,7 +229,7 @@
       var idle = attr(button, 'data-copy-idle') || (label ? label.textContent : 'Copy');
       button.classList.remove('is-copied', 'is-failed');
       button.classList.add(state === 'failed' ? 'is-failed' : 'is-copied');
-      setText(label, state === 'failed' ? 'Press Ctrl+C' : 'Copied');
+      setText(label, state === 'failed' ? ui('copy.failed', 'Press Ctrl+C') : ui('copy.copied', 'Copied'));
       button.setAttribute('data-copy-state', state);
       if (button.__copyTimer) { window.clearTimeout(button.__copyTimer); }
       button.__copyTimer = window.setTimeout(function () {
@@ -325,7 +336,13 @@
 
   var status = (function () {
     var timer = null;
-    var STATUS_WORDS = { ok: 'operational', degraded: 'degraded', critical: 'outage', unknown: 'status unknown' };
+    /* Runtime copy: every word here is a translated string from the shell's payload. */
+  var STATUS_WORDS = {
+    ok: ui('status.ok', 'operational'),
+    degraded: ui('status.degraded', 'degraded'),
+    critical: ui('status.critical', 'outage'),
+    unknown: ui('status.unknown', 'status unknown')
+  };
 
     function levelOf(payload) {
       if (!payload || typeof payload !== 'object') { return 'unknown'; }
@@ -383,7 +400,7 @@
       all('[data-status-pill]').forEach(function (pill) {
         pill.setAttribute('data-state', level);
         setText(pill.querySelector('.pill__text'), STATUS_WORDS[level] || level);
-        pill.setAttribute('title', 'Upstream status: ' + (STATUS_WORDS[level] || level));
+        pill.setAttribute('title', ui('status.title', 'Upstream status') + ': ' + (STATUS_WORDS[level] || level));
       });
     }
 
@@ -547,14 +564,306 @@
     return { init: init };
   }());
 
+  /* --------------------------------------------------------------- edge --- */
+
+  /**
+   * Reports which cache answered a real API call, using the real headers.
+   *
+   * The server cannot know the CDN's verdict for a response it has not yet handed
+   * over -- the edge writes that header on the way out. So it is read here, from a
+   * live response, instead of being rendered into the cached HTML: a cache verdict
+   * baked into a cacheable page is the exact bug this project already fixed once
+   * (see the cookie comment in partials/shell.php).
+   *
+   * One HEAD request, delayed until the page is idle, and only when the document
+   * actually carries the marker. The probe goes to /v1/tle because that is the
+   * endpoint whose responses carry the cache headers; /v1/health is `no-store` and
+   * would always answer "miss", which would be a truthful but useless reading.
+   */
+  var edge = (function () {
+    var PROBE = '/v1/tle';
+    var DELAY_MS = 1200;
+    var timer = null;
+
+    /* "MISS from L1:6518" -> "MISS". SCDN appends the node, which is useful in a
+       log and noise in a badge. */
+    function clean(value) {
+      var text = String(value == null ? '' : value).trim();
+      if (!text) { return ''; }
+      var match = text.match(/^([A-Za-z-]+)/);
+      return match ? match[1].toUpperCase() : text;
+    }
+
+    function paint(name, value) {
+      all('[data-' + name + ']').forEach(function (el) {
+        if (value) {
+          setText(el, value);
+          el.setAttribute('data-known', '1');
+        }
+      });
+    }
+
+    function measure() {
+      if (!window.fetch) { return; }
+      window.fetch(PROBE, {
+        method: 'HEAD',
+        cache: 'no-store',
+        credentials: 'omit',
+        headers: { Accept: 'application/json' }
+      }).then(function (response) {
+        var headers = response.headers;
+        var edgeValue = clean(headers.get('eo-cache-status') || '');
+        var raw = clean(headers.get('x-cache-status') || '');
+
+        /* EdgeOne names its verdict; SCDN reuses X-Cache-Status, so on SCDN the
+           same header is the EDGE answer and the origin's is on X-Origin-*. */
+        if (!edgeValue) { edgeValue = raw; }
+
+        var originValue = clean(headers.get('x-origin-cache-status') || '');
+        var age = headers.get('x-origin-cache-age');
+        if (originValue && age) {
+          originValue += ' · ' + String(age).replace(/[^0-9]/g, '') + 's';
+        }
+        if (!originValue && /^(HIT|MISS|STALE|EXPIRED)$/.test(raw)) {
+          originValue = raw;
+        }
+
+        paint('edge-cache', edgeValue);
+        paint('origin-cache', originValue);
+      }).then(null, function () { /* leave the placeholder: a probe failure is not an error */ });
+    }
+
+    function init() {
+      if (!all('[data-edge-cache]').length && !all('[data-origin-cache]').length) { return; }
+      if (!window.fetch) { return; }
+      timer = window.setTimeout(measure, DELAY_MS);
+    }
+
+    function stop() {
+      if (timer) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    }
+
+    return { init: init, stop: stop, measure: measure };
+  }());
+
+  /* ----------------------------------------------------------- preanswer --- */
+
+  /**
+   * Registers the ServiceWorker that pre-answers a direct visit to an API path.
+   *
+   * Registered on every host that serves this page, because the worker's scope is
+   * per-origin: the one installed on satellite.db.authskin.xyz cannot act on
+   * satellite.api.authskin.xyz. A registration failure is not an error -- curl and
+   * every machine client are unaffected either way, and the site works without it.
+   */
+  var preanswer = (function () {
+    function init() {
+      if (!('serviceWorker' in navigator)) { return; }
+      if (!window.isSecureContext) { return; }
+      try {
+        /* /v1/sw, not /sw.js or /sw: this vhost's rewrite is an explicit whitelist
+           (only /v1/*, /docs, /privacy, /legal, ... reach index.php), so anything
+           outside it is answered statically and a worker published there is a 404.
+           /v1/sw arrives at the front controller, and the response's
+           Service-Worker-Allowed header widens its scope to "/".
+           See lib/ServiceWorker.php. */
+        navigator.serviceWorker.register('/v1/sw', { scope: '/' }).then(null, function () {
+          /* Ignored on purpose: an unavailable worker degrades to a normal
+             navigation, which is the behaviour before this feature existed. */
+        });
+      } catch (err) {
+        /* Older browsers throw synchronously instead of rejecting. */
+      }
+    }
+
+    return { init: init };
+  }());
+
+  /* ---------------------------------------------------- section nav ---- */
+
+  /*
+   * Which section the nav should be pointing at.
+   *
+   * The underline used to be pinned to the FIRST link by a CSS :first-child rule,
+   * so scrolling to "接口" still showed "概览" as the current item -- a nav that
+   * lies about where the reader is. The markup now carries aria-current="location"
+   * (and the stylesheet reads that attribute), so this only has to keep the
+   * attribute on the section actually in view.
+   *
+   * No-JS visitors keep the server's default, which is the first section: the same
+   * thing they saw before this existed, and never an underline on nothing.
+   */
+  var sectionnav = (function () {
+    function init() {
+      var nav = document.querySelector('.site-header .nav');
+      if (!nav) { return; }
+      var links = toArray(nav.querySelectorAll('a[href^="#"]'));
+      if (links.length < 2) { return; }
+
+      var targets = [];
+      for (var i = 0; i < links.length; i++) {
+        var id = String(links[i].getAttribute('href') || '').slice(1);
+        var section = id ? document.getElementById(id) : null;
+        if (section) { targets.push({ link: links[i], section: section }); }
+      }
+      if (targets.length < 2) { return; }
+
+      var header = document.querySelector('.site-header');
+      var raf = window.requestAnimationFrame || function (fn) { return window.setTimeout(fn, 16); };
+      var ticking = false;
+
+      function mark() {
+        ticking = false;
+        var offset = (header ? header.offsetHeight : 0) + 8;
+        var line = window.pageYOffset + offset;
+        var current = targets[0];
+        for (var i = 0; i < targets.length; i++) {
+          var top = targets[i].section.getBoundingClientRect().top + window.pageYOffset;
+          if (top <= line) { current = targets[i]; }
+        }
+        /* At the very bottom the last section is on screen before its top reaches the
+           line; without this the final item could never become current. */
+        var docHeight = document.documentElement.scrollHeight;
+        if (window.innerHeight + window.pageYOffset >= docHeight - 2) {
+          current = targets[targets.length - 1];
+        }
+        for (var j = 0; j < targets.length; j++) {
+          if (targets[j] === current) {
+            targets[j].link.setAttribute('aria-current', 'location');
+          } else {
+            targets[j].link.removeAttribute('aria-current');
+          }
+        }
+      }
+
+      function schedule() {
+        if (ticking) { return; }
+        ticking = true;
+        raf(mark);
+      }
+
+      mark();
+      window.addEventListener('scroll', schedule, { passive: true });
+      window.addEventListener('resize', schedule);
+    }
+
+    return { init: init };
+  }());
+
+  /* ------------------------------------------------------------ floats ----
+     The Cap pill on every page, and the theme badge and music bar on a themed one, are
+     pinned to the bottom corners -- which is exactly where the film band types its slogan
+     out. app.css keeps them hidden while <body> carries data-floats="gated" and no
+     .floats-shown; this opens that gate.
+
+     It lives here rather than in theme.js because the plain site has no theme: the Cap
+     pill is on that page too, and theme.js is never loaded there.
+
+     The condition is the band's own bottom edge, not a pixel count: the band is one screen
+     tall and the slogan sits at its bottom, so "the band has scrolled past the corner" is
+     the threshold that actually answers the complaint. A page with no band (/docs,
+     /legal/*) falls back to a short scroll, because there is nothing to uncover.
+
+     Focus opens the gate too. The controls stay in the tab order while invisible (opacity,
+     not visibility), so tabbing onto one must show what has focus. */
+  var floats = (function () {
+    var CORNER = '.themebar, .seasonbadge, [data-cap-host]';
+    /* How much of the bottom of the screen the corner stack occupies: the music bar sits
+       16px up -- 92px when the Cap pill shares that corner -- and is about 34px tall, so
+       140 is the band's edge clearing the taller placement with room to spare. */
+    var RESERVE = 140;
+
+    function init() {
+      var body = document.body;
+      if (!body || attr(body, 'data-floats') !== 'gated') { return; }
+
+      var film = document.querySelector('[data-film]');
+      var held = false;
+      var frame = 0;
+      var raf = window.requestAnimationFrame || function (fn) { return window.setTimeout(fn, 16); };
+
+      function scrolled() {
+        return window.pageYOffset || document.documentElement.scrollTop || 0;
+      }
+
+      function wanted() {
+        if (held) { return true; }
+        var y = scrolled();
+        if (y <= 0) { return false; }
+        if (film) {
+          /* The band is out of the way only once its bottom edge is above the corner. */
+          return film.getBoundingClientRect().bottom <= window.innerHeight - RESERVE;
+        }
+        return y > 24;
+      }
+
+      function apply() {
+        frame = 0;
+        var open = wanted();
+        var isOpen = body.classList.contains('floats-shown');
+        if (open === isOpen) { return; }
+        if (open) { body.classList.add('floats-shown'); }
+        else { body.classList.remove('floats-shown'); }
+      }
+
+      function schedule() {
+        if (frame) { return; }
+        frame = raf(apply);
+      }
+
+      function corner(node) {
+        return closest(node, CORNER);
+      }
+
+      window.addEventListener('scroll', schedule, { passive: true });
+      window.addEventListener('resize', schedule, { passive: true });
+      window.addEventListener('pageshow', schedule);
+      document.addEventListener('focusin', function (event) {
+        if (!corner(event.target)) { return; }
+        held = true;
+        schedule();
+      });
+      document.addEventListener('focusout', function (event) {
+        if (!held) { return; }
+        var box = corner(event.target);
+        if (!box) { return; }
+        if (event.relatedTarget && box.contains(event.relatedTarget)) { return; }
+        held = false;
+        schedule();
+      });
+
+      apply();
+    }
+
+    return { init: init };
+  }());
+
   /* ------------------------------------------------------------- boot ---- */
 
   function boot() {
+    /* A page that loads this file twice must not end up with two of everything.
+       Measured on /docs, which used to include the shell's copy and its own: the
+       theme button switched to dark and straight back inside one click (two bound
+       handlers, net zero), two 60-second /v1/health pollers ran, and the clipboard
+       handler fired twice. The duplicate tag is gone (lib/Docs.php removes it), and
+       this guard means a future one cannot hurt either. */
+    if (window.__SATAPI_APP_BOOTED__) { return; }
+    window.__SATAPI_APP_BOOTED__ = true;
+
+    /* First, before anything that can throw: the gate is CSS-closed from the markup, so a
+       later failure must not leave the corner controls stranded off screen. */
+    floats.init();
     theme.init();
     copy.init();
     tabs.init();
     status.init();
     meta.init();
+    edge.init();
+    preanswer.init();
+    sectionnav.init();
   }
 
   if (document.readyState === 'loading') {
@@ -569,7 +878,11 @@
     tabs: tabs,
     status: status,
     meta: meta,
+    edge: edge,
+    preanswer: preanswer,
+    sectionnav: sectionnav,
+    floats: floats,
     boot: boot,
-    version: '1.0.0'
+    version: '1.1.0'
   };
 }(window, document));

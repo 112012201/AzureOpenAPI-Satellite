@@ -1,0 +1,744 @@
+/* ==========================================================================
+   site.css — this product's layer on top of the Endfield kit.
+   --------------------------------------------------------------------------
+   Load order (load-bearing):
+     tokens.css   colour roles (untouched)
+     app.css      legacy layout + the loading overlay, the Cap host and the
+                  consent/announcement panels (untouched)
+     md3.css      component layer for those same shell pieces (untouched)
+     endfield/endfield.css   the kit: shape, type scale, components
+     endfield/site.css       THIS FILE: the bridge + the page layout
+
+   Variant card (the one place the look is decided):
+     强调色  --primary (cyan) — the site's own accent, now the ONLY accent;
+             violet #7c3aed retires from the page.
+     纸色    cool (--bg #f6f8fa / --bg-elev #ffffff) — unchanged.
+     切角    standard (--ef-cut-k 1)
+     底纹    contours（极淡等高线，body.ef-contours）
+     密度    standard
+     动效    full（减少动态效果时全部关闭）
+     主视觉  首屏右侧切角框里的「实时读数板」：/v1/health 的真数据
+     页面类型 首屏=展示；能力/接口/数据源=阅读；状态=控制台读数板
+
+   Everything the loading overlay and the Cap widget draw lives in app.css /
+   md3.css and is deliberately NOT restyled here: the only rule below that can
+   reach them is the token bridge, and it maps to the values those files already
+   use.
+   ========================================================================== */
+
+/* ---------- 1. the one Latin face ---------- */
+
+@font-face {
+  font-family: 'Saira Variable';
+  src: url('/assets/fonts/saira-var.woff2') format('woff2-variations');
+  font-weight: 100 900;
+  font-stretch: 50% 125%;
+  font-display: swap;
+  /* Latin + digits + the punctuation the interface uses. The Chinese side is the
+     system sans, so no CJK range is declared here. */
+  unicode-range: U+0020-007E, U+00A0-00FF, U+2000-206F, U+2190-2193, U+2212, U+2260, U+2264-2265;
+}
+
+/* ---------- 2. the bridge: kit tokens <- this product's roles ---------- */
+
+/*
+ * The same mapping under every theme condition on purpose: the kit's dark block
+ * sets its own values, and this file wins only because it comes later AND states
+ * the mapping for `html[data-theme="dark"]` too. Because every branch maps to the
+ * same site variable, the kit follows this product's palette in light, in dark,
+ * and when neither is chosen.
+ */
+:root,
+html[data-theme],
+html[data-theme='light'],
+html[data-theme='dark'] {
+  --ef-paper: var(--bg);
+  --ef-panel: var(--bg-elev);
+  --ef-ink: var(--fg);
+  --ef-ink-2: var(--fg-muted);
+  --ef-rule: var(--line);
+  --ef-chip: var(--bg-sunken);
+  --ef-signal: var(--primary, var(--accent));
+  --ef-on-signal: var(--on-primary, #ffffff);
+  --ef-tag-bg: var(--fg);
+  --ef-tag-fg: var(--bg-elev);
+  --ef-danger: var(--bad, #b3261e);
+  /* The three-colour strip keeps its own two side colours; the middle cell is the
+     product accent, so the strip belongs to this site rather than to the kit. */
+  --ef-tri-b: var(--ef-signal);
+  --ef-font-ui: 'Saira Variable', 'Saira', system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  --ef-font-text: system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+}
+
+/* A line that means "here": ink by day, the accent by night. */
+:root,
+html[data-theme='light'] {
+  --ef-trace: var(--fg);
+}
+html[data-theme='dark'] {
+  --ef-trace: var(--ef-signal);
+}
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) {
+    --ef-trace: var(--ef-signal);
+  }
+}
+
+/* ---------- 3. base ---------- */
+
+html { -webkit-text-size-adjust: 100%; }
+body.ef {
+  margin: 0;
+  background: var(--ef-paper);
+  color: var(--ef-ink);
+  font-family: var(--ef-font-text);
+  font-size: var(--ef-t-body);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+body.ef ::selection { background: var(--ef-signal); color: var(--ef-on-signal); }
+body.ef a { color: inherit; }
+body.ef :focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+
+/* The shell's own utility classes (used by the consent/announcement markup and by
+   every page template) keep working; they are restated here only where the kit's
+   reset would otherwise flatten them. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.skip-link {
+  position: absolute; left: -9999px; top: 0; z-index: 200;
+  padding: 0.6rem 1rem; background: var(--ef-ink); color: var(--ef-panel);
+  font-family: var(--ef-font-ui); font-stretch: var(--ef-wider); text-transform: uppercase;
+  letter-spacing: 0.1em; font-size: 0.8rem; text-decoration: none;
+}
+.skip-link:focus { left: 0; }
+
+/* The three-locale blocks the shell renders: one language is active at a time. */
+.i18n[hidden] { display: none !important; }
+
+/* ---------- 4. page frame ---------- */
+
+.site-main { display: block; }
+.ef-wrap {
+  width: min(100% - 2 * var(--ef-pad), 1180px);
+  margin-inline: auto;
+}
+.ef-section { padding-block: clamp(2.5rem, 6vw, 4.5rem); border-top: 1px solid var(--ef-rule); }
+.ef-section > .ef-wrap > .ef-eyebrow:first-child { margin: -0.4rem 0 0.35rem; }
+
+/* The command bar carries the product's own name and the only navigation. */
+.site-top .brand { gap: 0.75rem; }
+.site-top .seal {
+  /* The seal is the product initial, not the game's mark. */
+  font-family: var(--ef-font-ui);
+  font-weight: 800;
+}
+.site-top .brand .name {
+  display: flex; flex-direction: column; line-height: 1.05;
+}
+.site-top .brand .name small {
+  font-size: 0.6rem; font-stretch: var(--ef-wider); font-weight: 500;
+  letter-spacing: 0.14em; opacity: 0.7; text-transform: uppercase;
+}
+.site-top .util { display: flex; align-items: center; gap: 0.5rem; padding-block: 0.4rem; }
+.site-top .util a, .site-top .util button {
+  font-family: var(--ef-font-ui); font-size: 0.78rem; font-stretch: var(--ef-wider);
+  font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+  color: #b8b8b8; background: none; border: 0; padding: 0.5rem 0.6rem;
+  cursor: pointer; text-decoration: none;
+}
+.site-top .util a:hover, .site-top .util button:hover { color: #fff; }
+.site-top .util .current { color: #fff; box-shadow: inset 0 -3px 0 var(--ef-signal); }
+
+/* ---------- 5. hero ---------- */
+
+.hero {
+  /* Aligns with .ef-wrap at every width: the container gutter widens once the
+     viewport passes the 1180px measure. */
+  --hero-pad: max(var(--ef-pad), calc((100vw - 1180px) / 2));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 40%);
+  column-gap: clamp(1.25rem, 4vw, 3.25rem);
+  align-items: start;
+  padding: clamp(1.5rem, 3vw, 2.25rem) var(--hero-pad) clamp(2rem, 5vw, 3.5rem);
+  border-bottom: 1px solid var(--ef-rule);
+  overflow: hidden;
+}
+.hero__fields { grid-column: 1; }
+.hero__fields > * + *::before {
+  content: '/'; margin-inline: 0.7em; color: var(--ef-rule);
+}
+.hero__mark {
+  grid-column: 1;
+  margin: clamp(1rem, 3vw, 2.25rem) 0 0;
+  /* Fits the column it is given: the kit sizes the wordmark from the viewport,
+     which overflows a two-column hero and gets clipped by `overflow: hidden`. */
+  --ef-wordmark: clamp(2rem, 5.4vw, 4.6rem);
+  max-width: 100%;
+  overflow-wrap: normal;
+}
+.hero__mark .solid { font-size: var(--ef-wordmark); }
+.hero__mark .hollow { font-size: calc(var(--ef-wordmark) * 0.52); }
+.hero__copy { grid-column: 1; padding-top: 1.4rem; }
+.hero__claim {
+  display: inline-block; margin: 0 0 0.9rem; padding: 0.1em 0.5em;
+  background: var(--ef-signal); color: var(--ef-on-signal);
+  font-family: var(--ef-font-ui); font-stretch: var(--ef-wider); font-weight: 700;
+  font-size: clamp(0.9rem, 1.6vw, 1.05rem); letter-spacing: 0.02em;
+}
+.hero__bio { max-width: 34rem; margin: 0; color: var(--ef-ink-2); }
+.hero__actions { margin: 1.5rem 0 0; }
+
+/* The plate: the product's own live readout, not decoration. A cut-corner frame
+   with a hatched shadow, exactly like the kit's showcase frame. */
+.hero__plate { grid-column: 2; grid-row: 1 / span 3; margin: 0 1rem 1.5rem 0; }
+/* The platform captions the picture; here the plate IS the picture, so the caption
+   goes under it in flow instead of covering the last readout row. */
+.hero__plate .ef-plate {
+  position: static;
+  display: inline-block;
+  max-width: 100%;
+  margin: 1.25rem 0 0 1.25rem;
+  padding: 0.5rem 1.2rem 0.55rem 0.9rem;
+}
+.hero__plate .window {
+  /* The kit's .ef-frame .window is absolutely positioned to fill the frame; this
+     plate sizes itself to its readout instead, so those two properties are reset. */
+  position: relative;
+  inset: auto;
+  overflow: visible;
+  --frame-cut: calc(2.5rem * var(--ef-cut-k));
+  clip-path: polygon(var(--frame-cut) 0, 100% 0, 100% calc(100% - var(--frame-cut)), calc(100% - var(--frame-cut)) 100%, 0 100%, 0 var(--frame-cut));
+  background: var(--ef-panel);
+  border: 0;
+  padding: clamp(1.1rem, 2.4vw, 1.7rem);
+  box-shadow: inset 0 0 0 1px var(--ef-rule);
+}
+.hero__plate .plate-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  padding-bottom: 0.7rem; border-bottom: 1px solid var(--ef-ink);
+}
+.hero__plate .plate-head .ef-eyebrow { margin: 0; }
+.hero__plate .ef-figs { margin-top: 1rem; }
+.hero__plate .ef-figs b { font-size: clamp(1.9rem, 4vw, 2.9rem); }
+.hero__plate .plate-rows {
+  margin: 1.1rem 0 0; padding: 0; list-style: none;
+  border-top: 1px solid var(--ef-rule);
+}
+.hero__plate .plate-rows li {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem;
+  padding: 0.45rem 0; border-bottom: 1px solid var(--ef-rule);
+  font-family: var(--ef-font-ui); font-size: var(--ef-t-field);
+}
+.hero__plate .plate-rows .k {
+  color: var(--ef-ink-2); font-stretch: var(--ef-wide);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.hero__plate .plate-rows .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* The band of endpoints, passing by. Real rows from the table below. */
+.hero__ticker {
+  grid-column: 1 / -1;
+  margin: clamp(1.5rem, 4vw, 2.5rem) calc(-1 * var(--hero-pad)) 0;
+}
+.hero__ticker .ef-ticker { border: 0; }
+.hero__ticker .ef-ticker a { font-family: var(--ef-font-ui); letter-spacing: 0.02em; }
+.hero__ticker .ef-ticker b { font-variant-numeric: tabular-nums; }
+
+/* ---------- 6. capability records ---------- */
+
+.caps { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--ef-rule); }
+.caps .ef-record { display: grid; grid-template-columns: auto minmax(11rem, 15rem) minmax(0, 1fr); }
+.caps .name { font-weight: 800; font-size: 1.05rem; }
+.caps .desc { color: var(--ef-ink-2); }
+
+/* ---------- 7. endpoints ---------- */
+
+.ep-table td.path { font-family: var(--ef-font-mono); font-size: 0.82rem; white-space: nowrap; }
+.ef-table td.path, .ef-table th:nth-child(2) { width: 15rem; }
+.ep-table td.path code { background: none; border: 0; padding: 0; }
+.ep-table .m { font-family: var(--ef-font-ui); font-stretch: var(--ef-wider); font-weight: 700; letter-spacing: 0.06em; }
+.ep-table .ttl { font-variant-numeric: tabular-nums; }
+.ep-table .is-here td:first-child { box-shadow: inset 3px 0 0 var(--ef-trace); }
+
+/* ---------- 8. quickstart ---------- */
+
+.qs { display: grid; grid-template-columns: minmax(0, 15rem) minmax(0, 1fr); gap: clamp(1rem, 3vw, 2.5rem); }
+.qs__steps { margin: 0; padding: 0; list-style: none; }
+.qs__steps li {
+  display: grid; grid-template-columns: auto 1fr; gap: 0.75rem;
+  padding: 0.65rem 0; border-bottom: 1px solid var(--ef-rule);
+  font-size: 0.95rem; color: var(--ef-ink-2);
+}
+.qs__steps .tag {
+  display: inline-grid; place-items: center; min-width: 2.1rem;
+  padding: 0 0.4rem; background: var(--ef-tag-bg); color: var(--ef-tag-fg);
+  font-family: var(--ef-font-ui); font-weight: 700; font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+.qs__steps b { color: var(--ef-ink); }
+.qs__main { min-width: 0; }
+.qs__tabs { margin: 0 0 0.9rem; }
+.qs__panel[hidden] { display: none; }
+.qs__code {
+  position: relative; margin: 0; padding: 1rem 1.1rem;
+  background: var(--ef-ink); color: var(--ef-panel);
+  overflow: auto; max-height: 24rem;
+}
+.qs__code code {
+  font-family: var(--ef-font-mono); font-size: 0.82rem; line-height: 1.65;
+  white-space: pre; background: none; border: 0; padding: 0; color: inherit;
+}
+.qs__copy { position: absolute; top: 0.5rem; right: 0.5rem; }
+.qs__note { margin: 0.75rem 0 0; color: var(--ef-ink-2); font-size: 0.9rem; }
+
+/* ---------- 9. status boards ---------- */
+
+.boards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.board { min-width: 0; }
+.board .ef-head { margin-bottom: 0.6rem; }
+.board dl { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.35rem 1rem; }
+.board dt {
+  font-family: var(--ef-font-ui); font-size: var(--ef-t-field); color: var(--ef-ink-2);
+  font-stretch: var(--ef-wide); text-transform: uppercase; letter-spacing: 0.08em;
+}
+.board dd { margin: 0; font-family: var(--ef-font-ui); font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.board .nums { display: flex; gap: 1.5rem; margin-bottom: 0.9rem; }
+.board .nums b { font-family: var(--ef-font-ui); font-size: 2rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+.board .nums span { display: block; margin-top: 0.3rem; font-size: 0.78rem; color: var(--ef-ink-2); }
+
+/* The status pill keeps its behaviour hooks ([data-status-pill] + .pill__text)
+   but is drawn as the kit's state chip. */
+[data-status-pill] {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.15rem 0.6rem; border: 1px solid var(--ef-ink);
+  font-family: var(--ef-font-ui); font-size: 0.78rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+[data-status-pill][data-state='ok'] { background: var(--ef-signal); color: var(--ef-on-signal); border-color: transparent; }
+[data-status-pill][data-state='degraded'],
+[data-status-pill][data-state='critical'],
+[data-status-pill][data-state='unknown'] { border-style: dashed; border-color: var(--ef-ink-2); color: var(--ef-ink-2); }
+
+/* ---------- 10. sources ---------- */
+
+.src { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--ef-rule); }
+.src .ef-record { display: grid; grid-template-columns: auto minmax(9rem, 12rem) minmax(0, 1fr) auto; align-items: baseline; }
+.src .name { font-weight: 800; }
+.src .url { color: var(--ef-ink-2); font-family: var(--ef-font-mono); font-size: 0.78rem; overflow-wrap: anywhere; }
+.src .ef-record:hover .url { color: var(--ef-ink); }
+.licence { margin-top: 1.5rem; }
+
+/* ---------- 11. footer ---------- */
+
+.site-foot {
+  margin-top: 0; padding-block: 2.25rem 3rem;
+  background: #161616; color: #b8b8b8;
+  border-top: 3px solid var(--ef-signal);
+}
+.site-foot .ef-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1.5rem; align-items: start; }
+.site-foot .mark {
+  font-family: var(--ef-font-ui); font-stretch: var(--ef-wider); font-weight: 800;
+  font-size: 1.1rem; letter-spacing: 0.08em; color: #ededed; text-transform: uppercase;
+}
+.site-foot .fields {
+  list-style: none; margin: 0.6rem 0 0; padding: 0;
+  display: flex; flex-wrap: wrap; gap: 0 1rem;
+  font-family: var(--ef-font-ui); font-size: 0.75rem; letter-spacing: 0.1em;
+  text-transform: uppercase; font-variant-numeric: tabular-nums;
+}
+.site-foot .fields li + li::before { content: '/'; margin-right: 1rem; color: #4a4a4a; }
+.site-foot nav { display: flex; flex-wrap: wrap; gap: 0 1.25rem; }
+.site-foot nav a { color: #b8b8b8; text-decoration: none; font-size: 0.85rem; }
+.site-foot nav a:hover { color: #fff; }
+.site-foot .legal { grid-column: 1 / -1; margin: 0.5rem 0 0; font-size: 0.75rem; color: #7a7a7a; }
+
+/* ---------- 12. reading pages (legal, 404) ---------- */
+
+.read-wrap { width: min(100% - 2 * var(--ef-pad), 760px); margin-inline: auto; padding-block: clamp(2rem, 5vw, 3.5rem); }
+.read-wrap .ef-eyebrow { margin-bottom: 0.35rem; }
+.read-title { margin: 0 0 0.75rem; font-size: clamp(1.7rem, 4vw, 2.4rem); font-weight: 800; line-height: 1.2; }
+.read-lede { margin: 0 0 1.5rem; color: var(--ef-ink-2); }
+.read-wrap h2 { margin: 2rem 0 0.6rem; font-size: 1.2rem; font-weight: 800; padding-top: 0.9rem; border-top: 1px solid var(--ef-rule); }
+.read-wrap h3 { margin: 1.4rem 0 0.4rem; font-size: 1rem; font-weight: 700; }
+.read-wrap p, .read-wrap li { line-height: 1.85; }
+.read-wrap ul, .read-wrap ol { padding-left: 1.25rem; }
+.read-wrap ul li::marker { color: var(--ef-ink-2); }
+.read-wrap code { font-family: var(--ef-font-mono); font-size: 0.85em; background: var(--ef-chip); padding: 0.05em 0.35em; }
+.read-wrap pre { background: var(--ef-ink); color: var(--ef-panel); padding: 0.9rem 1rem; overflow: auto; }
+.read-wrap pre code { background: none; padding: 0; color: inherit; }
+.read-wrap a { color: var(--ef-ink); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.read-wrap a:hover { background: var(--ef-signal); color: var(--ef-on-signal); text-decoration: none; }
+.read-wrap table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.9rem; }
+.read-wrap th, .read-wrap td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--ef-rule); text-align: left; vertical-align: top; }
+.read-wrap th { font-family: var(--ef-font-ui); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.1em; border-bottom: 1px solid var(--ef-ink); }
+
+/* The legal pages carry their own content classes; map them onto the reading voice. */
+.legal__wrap { width: min(100% - 2 * var(--ef-pad), 1040px); margin-inline: auto; padding-block: clamp(1.5rem, 4vw, 3rem) 3rem; }
+.legal__top { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; align-items: baseline; border-bottom: 1px solid var(--ef-ink); padding-bottom: 0.75rem; }
+.legal__top .brand { font-family: var(--ef-font-ui); font-stretch: var(--ef-wider); font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; text-decoration: none; }
+.legal__nav { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; margin-left: auto; }
+.legal__nav a { font-size: 0.85rem; text-decoration: none; color: var(--ef-ink-2); }
+.legal__nav a[aria-current='page'] { color: var(--ef-ink); font-weight: 700; box-shadow: inset 0 -3px 0 var(--ef-signal); }
+.legal__notice {
+  margin: 1.25rem 0 0; padding: 0.75rem 1rem; border-left: 6px solid var(--ef-signal);
+  background: var(--ef-chip); font-size: 0.9rem; color: var(--ef-ink);
+}
+.legal__meta { font-family: var(--ef-font-ui); font-size: 0.82rem; letter-spacing: 0.04em; color: var(--ef-ink-2); }
+.legal__cards { list-style: none; margin: 1rem 0 0; padding: 0; border-top: 1px solid var(--ef-rule); }
+.legal__cards li { padding: 0.7rem 0; border-bottom: 1px solid var(--ef-rule); }
+.legal__code { background: var(--ef-ink); color: var(--ef-panel); padding: 0.9rem 1rem; overflow: auto; font-family: var(--ef-font-mono); font-size: 0.82rem; }
+.legal__tablewrap { overflow-x: auto; }
+.legal h1 { font-size: clamp(1.7rem, 4vw, 2.3rem); line-height: 1.2; margin: 0 0 0.75rem; }
+.legal h2 { margin: 2rem 0 0.6rem; font-size: 1.2rem; padding-top: 0.9rem; border-top: 1px solid var(--ef-rule); }
+.legal h3 { margin: 1.4rem 0 0.4rem; font-size: 1rem; }
+.legal p, .legal li { line-height: 1.85; }
+.legal a { color: var(--ef-ink); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.legal a:hover { background: var(--ef-signal); color: var(--ef-on-signal); text-decoration: none; }
+.legal code { font-family: var(--ef-font-mono); font-size: 0.85em; background: var(--ef-chip); padding: 0.05em 0.35em; }
+
+/* The error page keeps its structure (code, apology, endpoint index) and gains the
+   reading voice. */
+.error-page { padding-block: clamp(2rem, 6vw, 4rem); }
+.error-page__card { width: min(100% - 2 * var(--ef-pad), 680px); margin-inline: auto; }
+.error-page__code {
+  margin: 0; font-family: var(--ef-font-ui); font-weight: 800; font-stretch: var(--ef-wider);
+  font-size: clamp(4rem, 14vw, 9rem); line-height: 0.82; letter-spacing: -0.03em;
+  color: transparent; -webkit-text-stroke: 2px var(--ef-ink);
+}
+.error-page__list { margin: 1rem 0 0; padding: 0; list-style: none; border-top: 1px solid var(--ef-rule); }
+.error-page__list li { padding: 0.55rem 0; border-bottom: 1px solid var(--ef-rule); display: flex; gap: 0.75rem; align-items: baseline; }
+.error-page__list code { font-family: var(--ef-font-mono); font-size: 0.82rem; }
+.error-page__list .what { color: var(--ef-ink-2); }
+
+/* ---------- 13. the shell: consent, announcement, notice strips ---------- */
+/*
+ * Appearance only. The markup, the cookie logic and the handshake between
+ * announce.js and consent.js are untouched; these rules replace the rounded
+ * panel look with the kit's square, cut-corner one and the accent with --ef-*.
+ */
+
+.anm, .anm-gate { background: color-mix(in srgb, var(--ef-ink) 62%, transparent); }
+.anm-gate { background: var(--ef-paper); }
+.anm__panel, .consent__panel {
+  border: 1px solid var(--ef-ink);
+  box-shadow: none;
+  border-radius: 0;
+  background: var(--ef-panel);
+  --frame-cut: calc(2rem * var(--ef-cut-k));
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--frame-cut)), calc(100% - var(--frame-cut)) 100%, 0 100%);
+}
+.anm__panel[data-anm-level='urgent'], .anm__panel[data-anm-level='important'],
+.anm__panel[data-anm-level='normal'], .anm__panel[data-anm-level='minor'] { border-top-width: 3px; }
+.anm__chip, .chapter-chip {
+  border-radius: 0;
+  font-family: var(--ef-font-ui); font-stretch: var(--ef-wider);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.anm__chip[data-level='urgent'] { background: var(--ef-ink); color: var(--ef-panel); }
+.anm__chip[data-level='important'] { background: var(--ef-signal); color: var(--ef-on-signal); }
+.anm__chip[data-level='normal'] { background: var(--ef-chip); color: var(--ef-ink); }
+.anm__chip[data-level='minor'] { background: none; color: var(--ef-ink-2); box-shadow: inset 0 0 0 1px var(--ef-rule); }
+.anm__title, .consent__title {
+  font-family: var(--ef-font-ui); font-stretch: var(--ef-wide); font-weight: 800; letter-spacing: 0.01em;
+}
+.anm__eyebrow { font-family: var(--ef-font-ui); letter-spacing: 0.14em; }
+.anm__meta-key { font-family: var(--ef-font-ui); text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.72rem; }
+.anm__actions, .consent__actions { border-top: 1px solid var(--ef-rule); }
+.anm-gate__mark { border-radius: 0; background: var(--ef-signal); color: var(--ef-on-signal); }
+.anm-gate__title { font-family: var(--ef-font-ui); font-stretch: var(--ef-wide); font-weight: 800; }
+
+/* Buttons inside the shell keep their classes; give them the kit's shape. */
+.consent .btn, .anm .btn, .anm-gate .btn {
+  border-radius: 0;
+  font-family: var(--ef-font-ui); font-stretch: var(--ef-wide);
+  text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.8rem;
+}
+.consent .btn--primary, .anm .btn--primary, .anm-gate .btn--primary {
+  background: var(--ef-ink); color: var(--ef-panel); border-color: var(--ef-ink);
+  background-image: linear-gradient(var(--ef-signal), var(--ef-signal));
+  background-repeat: no-repeat; background-size: 0% 100%; background-position: left;
+  transition: background-size 0.24s var(--ef-mech), color 0.24s var(--ef-mech);
+}
+.consent .btn--primary:hover, .anm .btn--primary:hover, .anm-gate .btn--primary:hover,
+.consent .btn--primary:focus-visible, .anm .btn--primary:focus-visible, .anm-gate .btn--primary:focus-visible {
+  background-size: 100% 100%; color: var(--ef-on-signal);
+}
+.consent .btn--ghost, .anm .btn--ghost, .anm-gate .btn--ghost {
+  background: none; color: var(--ef-ink); border: 1px solid var(--ef-ink);
+}
+.consent .btn--ghost:hover, .anm .btn--ghost:hover, .anm-gate .btn--ghost:hover {
+  background: var(--ef-ink); color: var(--ef-panel);
+}
+
+/* The endpoint notice strip and the service-notice bar: hairline + fields. */
+.enote,
+.enote[data-level],
+.enote[data-level='warning'],
+.enote[data-level='info'] {
+  background: var(--ef-paper);
+  border-bottom: 1px solid var(--ef-rule);
+  color: var(--ef-ink);
+}
+.enote__inner { width: min(100% - 2 * var(--ef-pad), 1180px); margin-inline: auto; }
+.enote__badge,
+.enote[data-level] .enote__badge,
+.enote[data-level='warning'] .enote__badge,
+.enote[data-level='info'] .enote__badge {
+  background: var(--ef-signal); color: var(--ef-on-signal); border: 0;
+  font-family: var(--ef-font-ui); font-stretch: var(--ef-wider);
+  text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.7rem;
+  border-radius: 0; padding: 0.15rem 0.5rem;
+}
+.enote__text { font-size: 0.85rem; color: var(--ef-ink-2); }
+.enote__host, .enote__cache { font-family: var(--ef-font-ui); font-size: 0.72rem; letter-spacing: 0.08em; }
+.announce { background: var(--ef-ink); color: var(--ef-panel); border-bottom: 0; }
+.announce__link { color: var(--ef-signal); }
+
+/* ---------- 14. the Cap host and the loading overlay ---------- */
+/*
+ * NOT restyled. The overlay and the challenge widget are out of scope by
+ * instruction, and they are the two places where a visual change would be invisible
+ * in testing and obvious to a visitor. The rules below only make sure the widget's
+ * host does not inherit a margin from the new page.
+ */
+/* Intentionally empty: the host keeps the sizing app.css gave it. */
+
+/* ---------- 15. responsive ---------- */
+
+@media (max-width: 1023px) {
+  .hero { grid-template-columns: minmax(0, 1fr); }
+  .hero__plate { grid-column: 1; grid-row: auto; margin: 1.75rem 0.75rem 0 0; }
+  .boards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .qs { grid-template-columns: minmax(0, 1fr); }
+  .site-foot .ef-wrap { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .hero__mark .solid { font-size: clamp(2.1rem, 11vw, 3.2rem); }
+  .hero__mark .hollow { font-size: clamp(1.1rem, 6.2vw, 1.8rem); }
+  .hero__fields { font-size: 0.72rem; }
+  .caps .ef-record { grid-template-columns: auto minmax(0, 1fr); row-gap: 0.2rem; }
+  .caps .desc { grid-column: 1 / -1; }
+  .src .ef-record { grid-template-columns: auto minmax(0, 1fr); row-gap: 0.2rem; }
+  .src .url { grid-column: 1 / -1; }
+  .boards { grid-template-columns: minmax(0, 1fr); }
+  .ep-table td.path { white-space: normal; }
+  .site-top .brand .name small { display: none; }
+  .qs__code { max-height: 20rem; }
+}
+
+/* ---------- 16. motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .hero__mark .solid, .hero__mark .hollow,
+  .hero__ticker .track { animation: none !important; transition: none !important; }
+  .ef-in-sweep, .ef-in-drive, .ef-in-come, .ef-in-stroke { animation: none !important; }
+}
+@media print {
+  .site-top, .site-foot, .hero__ticker, .qs__copy { display: none !important; }
+  body.ef { background: #fff; color: #000; }
+}
+
+/* ---------- 17. the carried-over blocks (endpoints, quickstart) ---------- */
+/*
+ * The endpoints table and the four quickstart code panels keep their original
+ * markup (and therefore their copy buttons and tab behaviour); only the class
+ * names changed. These rules give them the kit's voice so they read as part of the
+ * same page instead of as a survivor from the previous design.
+ */
+
+/* Section header: eyebrow with the // prefix, a heavy title, a lede. */
+.ef-section-head { margin-bottom: clamp(1.25rem, 3vw, 2rem); }
+.ef-section-head .eyebrow {
+  display: block; margin: 0 0 0.4rem;
+  font-family: var(--ef-font-ui); font-size: 0.7rem; font-weight: 600;
+  font-stretch: var(--ef-wider); letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ef-ink-2);
+}
+.ef-section-head .eyebrow::before { content: '// '; }
+.ef-section-head h2 {
+  margin: 0 0 0.5rem; font-size: clamp(1.4rem, 3vw, 1.9rem); font-weight: 800; line-height: 1.2;
+}
+.ef-section-head p { max-width: 46rem; margin: 0; color: var(--ef-ink-2); }
+
+/* The data table: eyebrow header row over an ink rule, hairline body, tabular figures. */
+.ef-table-wrap { overflow-x: auto; border-top: 1px solid var(--ef-ink); }
+.ef-table {
+  width: 100%; border-collapse: collapse;
+  font-size: 0.92rem;
+}
+.ef-table caption {
+  caption-side: top; padding: 0.6rem 0; text-align: left;
+  font-family: var(--ef-font-ui); font-size: 0.72rem; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--ef-ink-2);
+}
+.ef-table th {
+  padding: 0.55rem 0.7rem; text-align: left; vertical-align: bottom;
+  background: none;
+  font-family: var(--ef-font-ui); font-size: 0.7rem; font-weight: 700;
+  font-stretch: var(--ef-wider); letter-spacing: 0.12em; text-transform: uppercase;
+  border-bottom: 1px solid var(--ef-ink); white-space: nowrap;
+}
+.ef-table td {
+  padding: 0.6rem 0.7rem; vertical-align: top;
+  border-bottom: 1px solid var(--ef-rule);
+}
+.ef-table tbody tr:hover td { background: var(--ef-chip); }
+.ef-table tbody tr:hover td:first-child { box-shadow: inset 3px 0 0 var(--ef-trace); }
+.ef-table .ef-tag {
+  display: inline-block; padding: 0 0.4rem;
+  font-family: var(--ef-font-ui); font-size: 0.72rem; font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.ef-table .path { font-family: var(--ef-font-mono); font-size: 0.82rem; }
+.ef-table .ttl { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Tabs: the kit's segmented control look, still driven by app.js. */
+.ef-tabs { display: grid; gap: 1rem; }
+.ef-tabs .tablist {
+  display: flex; flex-wrap: wrap; gap: 0;
+  border: 1px solid var(--ef-ink); width: fit-content; max-width: 100%;
+}
+.ef-tabs .tab {
+  min-height: 2.75rem; padding: 0.4rem 1rem;
+  background: none; border: 0; border-left: 1px solid var(--ef-ink);
+  color: var(--ef-ink); cursor: pointer;
+  font-family: var(--ef-font-ui); font-size: 0.82rem; font-weight: 600;
+  font-stretch: var(--ef-wider); letter-spacing: 0.08em; text-transform: uppercase;
+}
+.ef-tabs .tab:first-child { border-left: 0; }
+.ef-tabs .tab[aria-selected='true'] { background: var(--ef-ink); color: var(--ef-panel); }
+.ef-tabs .tab:hover:not([aria-selected='true']) { background: var(--ef-chip); }
+
+/* Code: ink block, bar on top, copy button in the corner. */
+.ef-tabs .code-block { background: var(--ef-ink); color: var(--ef-panel); }
+.ef-tabs .code-block__bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.45rem 0.6rem 0.45rem 1rem; border-bottom: 1px solid #333;
+}
+.ef-tabs .code-block__title {
+  font-family: var(--ef-font-ui); font-size: 0.72rem; letter-spacing: 0.12em;
+  text-transform: uppercase; color: #b8b8b8;
+}
+.ef-tabs .copy-btn {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.3rem 0.6rem; background: none; border: 1px solid #555; color: #dedede;
+  font-family: var(--ef-font-ui); font-size: 0.72rem; letter-spacing: 0.08em;
+  text-transform: uppercase; cursor: pointer;
+}
+.ef-tabs .copy-btn:hover { background: var(--ef-signal); color: var(--ef-on-signal); border-color: var(--ef-signal); }
+.ef-tabs .copy-btn svg { width: 0.95rem; height: 0.95rem; }
+.ef-tabs .code-block pre { margin: 0; padding: 1rem; overflow: auto; max-height: 26rem; }
+.ef-tabs .code-block code {
+  font-family: var(--ef-font-mono); font-size: 0.82rem; line-height: 1.65;
+  color: inherit; background: none; border: 0; padding: 0; white-space: pre;
+}
+.hero__note { margin: 0.9rem 0 0; color: var(--ef-ink-2); font-size: 0.78rem; }
+.hero__note code { font-family: var(--ef-font-mono); font-size: 0.75rem; }
+
+/* The deprecated-routes footnote under the endpoint table. */
+.ef-section .table-note, .ef-section .table__note {
+  margin: 0.9rem 0 0; font-size: 0.82rem; color: var(--ef-ink-2);
+}
+.ef-section .table-note .badge, .ef-section .table__note .badge {
+  display: inline-block; padding: 0 0.4rem; margin-right: 0.5rem;
+  background: var(--ef-ink); color: var(--ef-panel);
+  font-family: var(--ef-font-ui); font-size: 0.68rem; letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* The footnote under the endpoint table (kept from the previous markup). */
+.ef-section p.hint { margin: 0.9rem 0 0; font-size: 0.82rem; color: var(--ef-ink-2); }
+.ef-section p.hint .badge {
+  display: inline-block; padding: 0 0.4rem; margin-right: 0.5rem;
+  text-decoration: none; border: 0;
+  background: var(--ef-ink); color: var(--ef-panel);
+  font-family: var(--ef-font-ui); font-size: 0.68rem; letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.ef-section p.hint code { font-family: var(--ef-font-mono); font-size: 0.78rem; }
+
+/* Code blocks are used twice: the four quickstart panels, and the response-envelope
+   example further down. The rules above are scoped to .ef-tabs, so the envelope one
+   kept the previous design; these generalise the same look to every section. */
+.ef-section .code-block {
+  position: relative; overflow: hidden;
+  border: 1px solid var(--ef-ink); border-radius: 0;
+  background: var(--ef-ink); color: var(--ef-panel);
+}
+.ef-section .code-block__bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.45rem 0.6rem 0.45rem 1rem;
+  background: var(--ef-ink); border-bottom: 1px solid #3a3a3a;
+}
+.ef-section .code-block__title {
+  font-family: var(--ef-font-ui); font-size: 0.72rem; letter-spacing: 0.12em;
+  text-transform: uppercase; color: #b8b8b8;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ef-section .copy-btn {
+  display: inline-flex; align-items: center; gap: 0.4rem; flex: none;
+  padding: 0.3rem 0.6rem; background: none; border: 1px solid #555; color: #dedede;
+  font-family: var(--ef-font-ui); font-size: 0.72rem; letter-spacing: 0.08em;
+  text-transform: uppercase; cursor: pointer; border-radius: 0;
+}
+.ef-section .copy-btn:hover, .ef-section .copy-btn:focus-visible {
+  background: var(--ef-signal); color: var(--ef-on-signal); border-color: var(--ef-signal);
+}
+.ef-section .copy-btn svg { width: 0.95rem; height: 0.95rem; }
+.ef-section .code-block pre { margin: 0; padding: 1rem; overflow: auto; max-height: 26rem; }
+.ef-section .code-block code {
+  font-family: var(--ef-font-mono); font-size: 0.82rem; line-height: 1.65;
+  color: inherit; background: none; border: 0; padding: 0; white-space: pre;
+}
+.ef-section h3 { margin: 2rem 0 0.5rem; font-size: 1.15rem; font-weight: 800; }
+.ef-section .lede { max-width: 46rem; color: var(--ef-ink-2); }
+
+/* A <pre> with `white-space: pre` has a huge min-content width, and grid/flex items
+   default to min-width:auto -- so the code block pushed the whole page wider than the
+   viewport (measured on the preview: scrollWidth 700 on a 485px viewport). The
+   scrollers below keep their own overflow instead. */
+.ef-tabs, .ef-tabs .tabs__panels, .ef-tabs .tabpanel,
+.ef-section .code-block, .ef-table-wrap { min-width: 0; }
+.ef-tabs .tabs__panels { display: block; }
+
+/* Legal tables: the legacy layer filled the header with a surface step; the reading
+   voice wants paper plus an ink rule, and a cookie name must not break mid-word. */
+.legal th, .read-wrap th { background: none; border-bottom: 1px solid var(--ef-ink); }
+.legal td, .read-wrap td { border-bottom: 1px solid var(--ef-rule); }
+.legal td code, .read-wrap td code { white-space: nowrap; }
+
+/* The 404 page: hollow code, flat card, and a primary action that is legible.
+   The legacy .btn--primary put ink on the accent; on this page the ink block wins. */
+.error-page__card { border: 0; background: none; box-shadow: none; padding: 0; }
+.error-page .error-page__code {
+  display: block;
+  margin: 0 0 0.5rem;
+  font-family: var(--ef-font-ui); font-weight: 800; font-stretch: var(--ef-wider);
+  font-size: clamp(3.5rem, 12vw, 8rem); line-height: 0.82; letter-spacing: -0.03em;
+  color: transparent; -webkit-text-stroke: 2px var(--ef-ink);
+}
+.error-page .btn--primary, .error-page .btn { border-radius: 0; }
+.error-page .btn--primary {
+  background: var(--ef-ink); color: var(--ef-panel); border: 1px solid var(--ef-ink);
+}
+.error-page .btn--primary:hover, .error-page .btn--primary:focus-visible {
+  background: var(--ef-signal); color: var(--ef-on-signal); border-color: var(--ef-signal);
+}
+.error-page .btn--ghost { background: none; color: var(--ef-ink); border: 1px solid var(--ef-ink); }
+.error-page .btn--ghost:hover { background: var(--ef-ink); color: var(--ef-panel); }
+
+/* The command bar carries five sections and a util block; below roughly 1280px it
+   wrapped into a second row. Dropping the Chinese sub-labels first keeps every
+   section on one line, and the util block collapses to icons-free text. */
+@media (max-width: 1280px) {
+  .site-top nav a { padding-inline: 0.75rem 0.55rem; }
+  .site-top nav a small { display: none; }
+}
+@media (max-width: 900px) {
+  .site-top nav { order: 3; width: 100%; margin: 0; border-top: 1px solid #2a2a2a; }
+  .site-top nav a { min-height: 2.6rem; }
+  .site-top .util { margin-left: auto; }
+}

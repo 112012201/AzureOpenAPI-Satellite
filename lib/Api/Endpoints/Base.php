@@ -30,6 +30,16 @@ abstract class Base
             'elapsed_ms'  => (int) round((microtime(true) - (defined('SATAPI_START') ? SATAPI_START : microtime(true))) * 1000),
         );
 
+        // Which public address answered, and which response header carries the
+        // EDGE cache verdict for it.
+        //
+        // This is not decoration. The two hostnames sit behind different CDNs and
+        // one of them (SCDN) overwrites `X-Cache-Status` with its own value, so a
+        // client that reads `X-Cache-Status` and calls it "the cache status" is
+        // wrong roughly half the time. Publishing the header name lets a script
+        // read the right one instead of guessing from the hostname.
+        $meta['endpoint'] = \SatApi\Support\Endpoint::describe($request);
+
         // Attach the acknowledgement state so an interactive client learns about the
         // requirement from the payload it is already parsing, without a second call.
         // Emitted only while unacknowledged, so a compliant client's meta block is
@@ -169,10 +179,30 @@ abstract class Base
             'Cache-Control'   => 'public, max-age=' . $shared . ', s-maxage=' . $shared
                 . ', stale-while-revalidate=' . max(600, $ttl * 2)
                 . ', stale-if-error=604800',
+            // ------------------------------------------------------------------
+            // Two names for the SAME origin verdict, on purpose.
+            //
+            // `X-Cache-Status` is the documented header and stays, because clients
+            // and tests depend on it. But a CDN reuses that exact name for its own
+            // verdict -- measured 2026-10-28 on satellite.db.authskin.xyz:
+            //
+            //   X-Cache-Status: MISS from L1:6518    <- SCDN overwrote it
+            //   X-Cache-Age: 5541                    <- origin said this, i.e. HIT
+            //
+            // So the origin verdict also travels as `X-Origin-Cache-Status`, a name
+            // no CDN touches. A response through SCDN therefore carries both
+            // truths, clearly labelled, instead of four headers that contradict
+            // each other. EdgeOne does not collide (it uses EO-Cache-Status), and
+            // both names are equal there.
+            // ------------------------------------------------------------------
             'X-Cache-Status'  => $status,
             'X-Cache-Age'     => (string) $age,
             'X-Cache-TTL'     => (string) $ttl,
             'X-Cache-Backend' => isset($cache['backend']) ? (string) $cache['backend'] : '',
+            'X-Origin-Cache-Status'  => $status,
+            'X-Origin-Cache-Age'     => (string) $age,
+            'X-Origin-Cache-TTL'     => (string) $ttl,
+            'X-Origin-Cache-Backend' => isset($cache['backend']) ? (string) $cache['backend'] : '',
         );
 
         return Legacy::apply($headers, $route);

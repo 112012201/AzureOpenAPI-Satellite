@@ -1,0 +1,133 @@
+/* ==========================================================================
+   theme.css — the chrome every holiday theme shares.
+
+   Loaded FIRST when a theme is on, before the theme's own palette file. It carries
+   only what is true of every theme:
+
+     .fx             the full-bleed canvas an effect draws on
+     .seasonbadge    bottom-right: which theme this is, and the way out
+     .themebar       bottom-left: music play/pause/replay
+
+   and the rule that keeps all of the fixed corner controls off the first screen until
+   the visitor scrolls (section 4) -- the band types its slogan out right where they sit.
+
+   The palette, the effect and the loading screen's colours belong to the theme's own
+   file (newyear.css, spring.css, christmas.css). A theme that only changes colours
+   does not have to restate any of this.
+
+   NOTHING HERE CHANGES LAYOUT. No display, width or order rules touch the document;
+   the canvases sit at z-index 0 and the page is lifted above them by the palette file,
+   because stacking is the one thing a shared file cannot decide (each palette knows
+   which of its surfaces is opaque).
+   ========================================================================== */
+
+/* ---------- 1. the effect canvas ---------------------------------------- */
+.fx {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* ---------- 2. the badge (bottom-right) --------------------------------- */
+.seasonbadge {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  font: 500 12px/1.2 'Segoe UI', system-ui, -apple-system, 'Microsoft YaHei', sans-serif;
+  letter-spacing: 0.02em;
+  /* The colours are the theme's, but the badge must be legible even if a palette file
+     fails to load: these are deliberately solid, not var() lookups into the theme. */
+  background: rgba(18, 10, 10, 0.82);
+  border: 1px solid currentColor;
+  color: #fff2e2;
+}
+.seasonbadge__mark {
+  width: 8px;
+  height: 8px;
+  background: currentColor;
+  transform: rotate(45deg);
+  flex: 0 0 auto;
+}
+.seasonbadge__name { font-weight: 600; }
+.seasonbadge__exit {
+  font: inherit;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.seasonbadge__exit:hover { background: rgba(255, 255, 255, 0.16); }
+
+/* ---------- 3. the music controls (bottom-left) ------------------------- */
+.themebar {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: rgba(18, 10, 10, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff2e2;
+  font: 500 12px/1.2 'Segoe UI', system-ui, -apple-system, 'Microsoft YaHei', sans-serif;
+}
+/* The Cap badge is pinned to this same corner (md3.css, [data-cap-host]: fixed,
+   left/bottom 16px, z-index 210 -- above everything this file draws). When the
+   challenge is on, the player steps over it instead of hiding behind it; the class
+   comes from Season::player(), so a deployment without the challenge keeps the
+   corner to itself. 65px is the widget's own height; 92 puts the player's bottom edge
+   a clear 11px above the widget's top edge (measured on the live page). Must come AFTER the
+   .themebar rule above: same specificity, so source order is what decides. */
+.themebar--cap { bottom: 92px; }
+
+.themebar__btn {
+  font: inherit;
+  min-width: 52px;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.themebar__btn:hover { background: rgba(255, 255, 255, 0.16); }
+.themebar__btn[aria-pressed='true'] { font-weight: 700; }
+.themebar__btn--icon { min-width: 30px; padding: 4px 6px; font-size: 14px; line-height: 1; }
+.themebar__hint {
+  padding-left: 2px;
+  font-size: 11px;
+  opacity: 0.85;
+  max-width: 190px;
+}
+/* A blocked autoplay leaves the play button as the answer; the hint says why. */
+.themebar[data-state='blocked'] .themebar__btn[data-music-toggle] {
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+/* The corner controls' scroll gate lives in app.css: it also has to work on the plain
+   site, where this stylesheet is not loaded. */
+
+/* ---------- 4. smaller screens ------------------------------------------ */
+
+@media (max-width: 720px) {
+  .seasonbadge { right: 10px; bottom: 10px; font-size: 11px; }
+  .themebar { left: 10px; bottom: 10px; font-size: 11px; }
+  .themebar--cap { bottom: 82px; }
+  .themebar__hint { display: none; }
+}
+
+/* A reader who asked for less motion still gets the theme's colours and the controls;
+   the moving background is what they lose. The effect scripts remove their canvas too. */
+@media (prefers-reduced-motion: reduce) {
+  .fx { display: none !important; }
+}

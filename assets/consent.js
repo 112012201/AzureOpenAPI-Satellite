@@ -43,17 +43,64 @@
     document.cookie = name + '=' + encodeURIComponent(value) + attrs;
   }
 
+  /**
+   * The visitor's own cookie decision, read from the cookie.
+   *
+   * This is the ONLY correct source. The page is served `public, s-maxage=600`
+   * through a CDN, so the server cannot know this visitor's choice: whatever it
+   * read when filling its cache entry belongs to a different person. Measured
+   * 2026-10-28 through EdgeOne -- identical request and identical cookie, two
+   * consecutive hits, two different answers:
+   *
+   *   cookie_consent=accept_all  try1 -> "hasConsentCookie":true    EO: MISS
+   *   cookie_consent=accept_all  try2 -> "hasConsentCookie":false   EO: HIT
+   *
+   * Reading `boot.cookies.choice` therefore either re-asks a visitor who already
+   * decided, or -- worse -- suppresses the dialog for a first-time visitor because
+   * the cached copy was born from someone else's "accept". The cookie itself is
+   * per-browser and cannot be corrupted this way.
+   *
+   * Format written below: "<choice>;v=<version>".
+   */
+  function consentChoice() {
+    var raw = readCookie(boot.cookieName || 'cookie_consent');
+    if (!raw) { return { choice: '', version: 0 }; }
+
+    var bits = String(raw).split(';');
+    var choice = String(bits[0] || '').trim();
+    var version = 0;
+    for (var i = 0; i < bits.length; i++) {
+      var bit = String(bits[i]).trim();
+      if (bit.indexOf('v=') === 0) { version = parseInt(bit.slice(2), 10) || 0; }
+    }
+
+    var allowed = { accept_all: 1, essential_only: 1, reject_all: 1 };
+    if (!allowed[choice]) { choice = ''; }
+
+    return { choice: choice, version: version };
+  }
+
   /* ------------------------------------------------------------- locales */
+
+  /* The tag a page is SERVED as versus the locale its text is WRITTEN in.
+     English is one text with two tags: en-US and en-GB differ in <html lang> and in
+     how a search engine files the page, not in a single word. Every block in the
+     document is therefore keyed 'en', and a choice of 'en-GB' has to find it. */
+  function contentLocale(code) {
+    var value = String(code || '');
+    return value.indexOf('en') === 0 ? 'en' : value;
+  }
 
   function applyLocale(code) {
     if (!code) { return; }
+    var content = contentLocale(code);
     docEl.setAttribute('lang', code);
-    if (document.body) { document.body.setAttribute('data-locale', code); }
+    if (document.body) { document.body.setAttribute('data-locale', content); }
 
     var blocks = document.querySelectorAll('[data-locale]');
     for (var i = 0; i < blocks.length; i++) {
       var el = blocks[i];
-      var match = el.getAttribute('data-locale') === code;
+      var match = el.getAttribute('data-locale') === content;
       if (match) {
         el.removeAttribute('hidden');
         el.classList.add('is-active');
@@ -72,7 +119,14 @@
   }
 
   function initLanguageSwitch() {
-    applyLocale(boot.locale);
+    /* The stored choice wins over the server's answer.
+       The document is cached by the CDN and cannot vary on a cookie, so a returning
+       visitor can be served the copy another visitor's request produced. Reading the
+       cookie here is what makes the choice stick through a cache hit -- the server's
+       answer is only the first-visit default. */
+    var stored = '';
+    try { stored = readCookie(boot.langCookie || 'satapi-lang') || ''; } catch (e) { stored = ''; }
+    applyLocale(stored || boot.locale);
 
     var buttons = document.querySelectorAll('[data-lang-choice]');
     for (var i = 0; i < buttons.length; i++) {
@@ -81,8 +135,10 @@
         applyLocale(code);
         // The language cookie is a preference: only stored when the visitor has not
         // restricted optional cookies. Without it the switch lasts for this page.
-        if (boot.cookies && boot.cookies.choice === 'reject_all') { return; }
-        if (boot.cookies && boot.cookies.choice === 'essential_only') { return; }
+        // Read from the cookie, not from boot.cookies -- see consentChoice().
+        var decided = consentChoice().choice;
+        if (decided === 'reject_all') { return; }
+        if (decided === 'essential_only') { return; }
         writeCookie(boot.langCookie || 'satapi-lang', code, (boot.cookieDays || 180) * 86400);
       });
     }
@@ -121,17 +177,42 @@
     if (!dialog) { return; }
 
     var note = dialog.querySelector('[data-consent-note]');
-    var choice = (boot.cookies && boot.cookies.choice) || '';
+    // Authoritative per-visitor state, straight from the cookie.
+    var recorded = consentChoice();
+    var choice = recorded.choice;
+    // The notice version and the lifetime are configuration, so they DO travel in
+    // the payload: they are identical for every visitor and safe to cache.
     var currentVersion = (boot.cookies && boot.cookies.current_version) || boot.cookieVersion || 1;
-    var recordedVersion = (boot.cookies && boot.cookies.version) || 0;
+    var recordedVersion = recorded.version;
 
     // Ask again when the notice itself changed, because the previous answer covered
     // a different set of cookies.
     var needsDecision = !choice || (recordedVersion && recordedVersion !== currentVersion);
 
-    if (needsDecision) {
+    function openDialog() {
       dialog.removeAttribute('hidden');
       if (document.body) { document.body.classList.add('has-dialog'); }
+    }
+
+    if (needsDecision) {
+      /*
+       * ONE DIALOG AT A TIME.
+       *
+       * The announcement board (assets/announce.js) loads before this file and claims
+       * the screen first by setting `has-announce`; it releases the screen with a
+       * `satapi:announce-closed` event, which it also fires when it had nothing to
+       * show. Two modals opening on top of each other is not a choice, it is a pile,
+       * and the visitor has to dismiss one to see the other.
+       *
+       * The event is the contract rather than a callback so neither file has to know
+       * the other exists; if announce.js never loads, the class is never set and this
+       * dialog opens immediately, which is the previous behaviour.
+       */
+      if (document.body && document.body.classList.contains('has-announce')) {
+        document.addEventListener('satapi:announce-closed', openDialog, { once: true });
+      } else {
+        openDialog();
+      }
     }
 
     function decide(kind) {
@@ -514,10 +595,17 @@
    * Anything else means a progress bar with a control underneath it that the visitor is not meant
    * to touch yet. Hiding rather than removing is deliberate: the challenge still has to solve
    * while the screen is up, so the element keeps its box.
+   *
+   * `state` tells the stylesheet whether the pill earned its place or is there because something
+   * failed. The corner controls are hidden on the first screen (they sit where the film band
+   * types its slogan out) -- but a FAILED challenge must never be kept off screen, or the
+   * visitor has nothing to retry with.
    */
-  function revealCapHost() {
+  function revealCapHost(state) {
     var host = document.querySelector('[data-cap-host]');
-    if (host) { host.classList.add('is-visible'); }
+    if (!host) { return; }
+    if (state) { host.setAttribute('data-cap-state', state); }
+    host.classList.add('is-visible');
   }
 
   function showOverlayError(message) {
@@ -529,7 +617,7 @@
       box.removeAttribute('hidden');
     }
     // Case 1: the challenge could not be satisfied, so the visitor needs the control.
-    revealCapHost();
+    revealCapHost('failed');
   }
 
   /**
@@ -578,7 +666,7 @@
             // Case 2: loading is finished and the page is in place, so the badge belongs on it.
             // Revealed here rather than at `boot--done`, because the overlay is still on screen
             // fading out until this point and the widget sits above it in the stack.
-            revealCapHost();
+            revealCapHost('done');
           }, PHASE_FILL_MS + PHASE_FADE_DELAY_MS + PHASE_FADE_MS);
         }, PHASE_HOLD_MS);
       });
@@ -842,7 +930,7 @@
     // No overlay means no loading screen to hide behind, so nothing will ever call the reveal at
     // the end of it. Without this the widget would stay hidden on a page that has no boot screen.
     if (!overlay()) {
-      revealCapHost();
+      revealCapHost('done');
     }
 
     // A short, real round trip so the rail reports something that actually happened
@@ -894,7 +982,7 @@
 
     // Shown at once on this page: it is the one place the widget IS the content, and there is no
     // loading screen here to hide it behind.
-    revealCapHost();
+    revealCapHost('done');
 
     function say(message) {
       if (!status || !message) { return; }

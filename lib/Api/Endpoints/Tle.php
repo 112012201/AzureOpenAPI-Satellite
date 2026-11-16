@@ -197,12 +197,25 @@ final class Tle extends Base
 
     private static function resolveFormat(Request $request)
     {
-        $format = $request->format(array('tle', 'json'));
+        // `false`: the representation is decided by the URL, never by Accept.
+        //
+        // Measured through the SCDN edge on 2026-10-28: the response carries
+        // `vary: Accept-Encoding` only -- Accept is not in the Vary list -- so once a
+        // client warmed `/v1/tle?limit=3` with `Accept: application/json`, the next
+        // request for the SAME URL with `Accept: text/plain` received JSON at an edge
+        // HIT. A representation that depends on a request header the cache does not
+        // key on is the same failure this project already fixed for cookies.
+        //
+        // So a plain `/v1/tle` is standard TLE text for everyone, and JSON is asked
+        // for with `?json=true` (or the older `?format=json`).
+        $format = $request->format(array('tle', 'json'), false);
         if ($format === null) {
             Problem::send(
                 400,
                 'Bad Request',
-                'Unsupported format. Use format=tle (text/plain) or format=json.',
+                'Unsupported format. The default is standard TLE text; send format=tle, '
+                    . 'or json=true (or format=json) for JSON. An unrecognised value is rejected '
+                    . 'rather than silently falling back to the default.',
                 'bad_request',
                 array('parameter' => 'format')
             );

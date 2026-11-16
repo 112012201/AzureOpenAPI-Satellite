@@ -28,7 +28,50 @@ final class Client
             return self::curlMissing();
         }
 
+        return self::withRetries($url, self::normalizeOptions($opts));
+    }
+
+    /**
+     * POST a JSON document and treat 200 or 202 as success.
+     *
+     * IndexNow is the reason this exists: it takes a JSON body and answers **202
+     * Accepted** (not 200) with an empty body when the submission was queued. The
+     * GET path's "status === 200 and a non-empty body" rule would call that a
+     * failure, and a successful submission reported as a failure is worse than no
+     * submission at all. The rule is scoped to this method: every existing caller
+     * of get() keeps the strict one.
+     *
+     * @param string $url
+     * @param string $body raw JSON
+     * @param array  $opts
+     * @return array{ok:bool,status:int,body:string,error:string,errno:int,ms:int,bytes:int,url:string}
+     */
+    public static function post($url, $body, array $opts = array())
+    {
+        if (!function_exists('curl_init')) {
+            return self::curlMissing();
+        }
+
         $opts = self::normalizeOptions($opts);
+        $opts['method'] = 'POST';
+        $opts['body'] = (string) $body;
+        $opts['ok_status'] = array(200, 202);
+        // The error body of a rejected submission is the only diagnostic there is
+        // (400/403/422 each mean a different mistake), so it is always kept.
+        $opts['keep_error_body'] = true;
+        if ($opts['accept'] === '') {
+            $opts['accept'] = 'application/json';
+        }
+        $opts['headers'][] = 'Content-Type: application/json; charset=utf-8';
+
+        return self::withRetries($url, $opts);
+    }
+
+    /**
+     * The retry loop, shared by get() and post() so the two cannot drift.
+     */
+    private static function withRetries($url, array $opts)
+    {
         $attempts = $opts['retries'] + 1;
         $result = self::emptyResult();
 
@@ -246,12 +289,18 @@ final class Client
             $status = 0;
         }
 
-        $success = ($ok !== false && $errno === 0 && $status === 200 && $body !== '');
+        $success = ($ok !== false && $errno === 0
+            && in_array($status, isset($opts['ok_status']) ? (array) $opts['ok_status'] : array(200), true)
+            // A POST may answer 202 with an empty body; a GET that answers 200 with
+            // an empty body is still a failure.
+            && ($body !== '' || (isset($opts['method']) && (string) $opts['method'] === 'POST')));
 
         return array(
             'ok'     => $success,
             'status' => $status,
-            'body'   => $success ? $body : '',
+            // See `keep_error_body` in normalizeOptions: a caller that relays
+            // upstream responses needs the body of a 4xx, everyone else does not.
+            'body'   => ($success || !empty($opts['keep_error_body'])) ? $body : '',
             'error'  => $success ? '' : ($error !== '' ? $error : 'HTTP ' . $status),
             'errno'  => $errno,
             'ms'     => $ms,
@@ -295,6 +344,13 @@ final class Client
         if (!empty($headers)) {
             curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
         }
+        // A raw body with an explicit Content-Type (set by post()'s caller-supplied
+        // headers) rather than an array: curl would otherwise send
+        // application/x-www-form-urlencoded, which IndexNow rejects.
+        if (isset($opts['method']) && strtoupper((string) $opts['method']) === 'POST') {
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, (string) (isset($opts['body']) ? $opts['body'] : ''));
+        }
 
         return $ch;
     }
@@ -312,6 +368,14 @@ final class Client
             'max_bytes'       => (int) Config::get('http.max_bytes', 33554432),
             'accept'          => '',
             'headers'         => array(),
+            // Keep the response body even when the status is not 200.
+            //
+            // Default false, because a body on a failed fetch is usually an error
+            // page and every existing caller reads `body` only when `ok` is true.
+            // A PROXY needs the opposite: AMSAT answers "no such satellite" with
+            // `404` and a JSON document that is itself the answer, and discarding it
+            // turned a relayable 404 into our own 503 (measured 2026-11-03).
+            'keep_error_body' => false,
         );
 
         return $opts + $defaults;

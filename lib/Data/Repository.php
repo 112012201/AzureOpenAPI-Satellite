@@ -2,6 +2,7 @@
 
 namespace SatApi\Data;
 
+use SatApi\Cache\Lock;
 use SatApi\Cache\Store;
 use SatApi\Config;
 use SatApi\Http\Client;
@@ -385,6 +386,8 @@ final class Repository
         $sources = array();
         $refresh = array();
         $warnings = array();
+        // Per-source `stored_at`, used to derive the snapshot key below.
+        $stamp = array();
 
         foreach (self::TLE_SOURCES as $id) {
             $result = self::sourceRecords($id, $force);
@@ -401,6 +404,7 @@ final class Repository
                 'ok'          => !empty($result['data']),
                 'error'       => $result['error'],
             );
+            $stamp[$id] = isset($result['cache']['stored_at']) ? (int) $result['cache']['stored_at'] : 0;
             if (!empty($result['refresh'])) {
                 $refresh[] = $result['refresh'];
             }
@@ -409,12 +413,186 @@ final class Repository
             }
         }
 
-        $records = Parser::merge($datasets);
+        // ------------------------------------------------------------------
+        // Preprocessing, then serve the preprocessed result.
+        //
+        // The snapshot key is DERIVED FROM THE SOURCE TIMESTAMPS rather than being
+        // a fixed name with a TTL. A fixed name would have to guess a TTL that
+        // outlives the slowest source and still be refreshed when the fastest one
+        // changes, and no single number does both: CelesTrak refreshes on a 3h TTL
+        // while AMSAT is on 12h, so any fixed choice serves one source's data past
+        // its own expiry. Deriving the key means a source refresh produces a new key
+        // by construction, and the old snapshot simply ages out.
+        // ------------------------------------------------------------------
+        $snapshotKey = 'prepared:tle:' . substr(hash('sha256', json_encode($stamp)), 0, 16);
+        $prepared = Prepared::snapshot(static function () use ($datasets) {
+            return $datasets;
+        }, $force, $snapshotKey);
+
+        $records = $prepared['records'];
         if (empty($records)) {
-            return array('data' => array(), 'sources' => $sources, 'warnings' => $warnings, 'refresh' => $refresh);
+            return array(
+                'data'     => array(),
+                'sources'  => $sources,
+                'warnings' => $warnings,
+                'refresh'  => $refresh,
+                'prepared' => $prepared['stats'],
+            );
         }
 
-        return array('data' => $records, 'sources' => $sources, 'warnings' => $warnings, 'refresh' => $refresh);
+        return array(
+            'data'     => $records,
+            'sources'  => $sources,
+            'warnings' => $warnings,
+            'refresh'  => $refresh,
+            // Counters for every cleaning rule that fired, plus the snapshot's own
+            // cache state. Published so "the feed changed" can be attributed to a
+            // rule instead of to an upstream.
+            'prepared' => $prepared['stats'],
+            'snapshot' => array(
+                'key'      => $snapshotKey,
+                'built_at' => $prepared['built_at'],
+                'cache'    => $prepared['cache'],
+            ),
+        );
+    }
+
+    /**
+     * Every dataset a hot reload touches.
+     *
+     * The four TLE sets plus the three JSON/HTML datasets. This list is the reason
+     * `--target=all` used to be a false promise: the CLI's `all` case expanded to
+     * TLE_SOURCES only, so a "reload everything" left satellites, transmitters and
+     * the AMSAT status page untouched on whatever old copy they had.
+     */
+    const DATASETS = array(
+        'weather',
+        'amateur',
+        'amsat',
+        'satnogs',
+        'satnogs_satellites',
+        'satnogs_transmitters',
+        'amsat_status',
+    );
+
+    /**
+     * Hot reload: re-pull every source and OVERWRITE the cached copy.
+     *
+     * Differences from the scheduled warmup, both deliberate:
+     *
+     *   - TTL is ignored. `prefetch()` skips a source whose cache is still fresh,
+     *     which is correct for a cron that runs every few minutes and wrong for an
+     *     operator saying "the feed is wrong, refetch it now". A reload 5 seconds
+     *     after the last fetch still hits the network.
+     *   - The prepared snapshot is rebuilt from the NEW data rather than from the
+     *     cache that was just replaced.
+     *
+     * Serialised behind a lock: two overlapping reloads would double the upstream
+     * request rate for an identical result, and CelesTrak already blocks IPs it
+     * considers abusive -- a self-inflicted reload storm is how a service loses its
+     * only primary source for two hours.
+     *
+     * @param string[] $only subset of DATASETS; empty means all
+     * @return array<string,mixed>
+     */
+    public static function reloadAll(array $only = array())
+    {
+        $targets = array_values(array_intersect(self::DATASETS, $only === array() ? self::DATASETS : $only));
+        if ($targets === array()) {
+            return array('ok' => false, 'error' => 'no known dataset was selected', 'datasets' => array());
+        }
+
+        $lock = new Lock('reload');
+        $timeout = (int) Config::get('reload.lock_timeout_ms', 5000);
+        if (!$lock->acquire($timeout)) {
+            return array(
+                'ok'      => false,
+                'error'   => 'another reload is already running',
+                'locked'  => true,
+                'datasets' => array(),
+            );
+        }
+
+        $limit = max(10, (int) Config::get('reload.time_limit', 180));
+        $started = microtime(true);
+        $report = array('ok' => true, 'started_at' => gmdate('Y-m-d\TH:i:s\Z'), 'datasets' => array());
+        $failed = 0;
+        $skipped = array();
+
+        try {
+            foreach ($targets as $id) {
+                if (microtime(true) - $started > $limit) {
+                    // Truncating loudly is the only honest option: a reload that
+                    // quietly stopped after four of seven sources would report
+                    // success for a half-refreshed cache.
+                    $skipped = array_slice($targets, array_search($id, $targets, true));
+                    $report['ok'] = false;
+                    $report['time_limit_reached'] = true;
+                    break;
+                }
+
+                $at = microtime(true);
+                if (in_array($id, self::TLE_SOURCES, true)) {
+                    $result = self::source($id, true);
+                    $count = count((array) (isset($result['data']) ? $result['data'] : array()));
+                    $error = (string) (isset($result['error']) ? $result['error'] : '');
+                    $cache = (array) (isset($result['cache']) ? $result['cache'] : array());
+                } elseif ($id === 'amsat_status') {
+                    $result = self::amsatReports(true);
+                    $count = count((array) (isset($result['data']) ? $result['data'] : array()));
+                    $error = (string) (isset($result['error']) ? $result['error'] : '');
+                    $cache = (array) (isset($result['cache']) ? $result['cache'] : array());
+                } else {
+                    $result = self::dataset($id, true);
+                    $count = count((array) (isset($result['data']) ? $result['data'] : array()));
+                    $error = (string) (isset($result['error']) ? $result['error'] : '');
+                    $cache = (array) (isset($result['cache']) ? $result['cache'] : array());
+                }
+
+                $ok = $count > 0 && $error === '';
+                if (!$ok) {
+                    $failed++;
+                }
+                $report['datasets'][$id] = array(
+                    'ok'         => $ok,
+                    'count'      => $count,
+                    'error'      => $error,
+                    'ms'         => (int) round((microtime(true) - $at) * 1000),
+                    // `written` is the point of a reload: MISS means the producer ran
+                    // and Store::write overwrote the previous copy. STALE/EXPIRED
+                    // means the fetch failed and the old copy survived -- which must
+                    // not be reported as success.
+                    'written'    => (isset($cache['status']) ? (string) $cache['status'] : ''),
+                    'stored_at'  => isset($cache['stored_at']) ? (int) $cache['stored_at'] : 0,
+                );
+            }
+
+            // Rebuild the snapshot from the data that was just written. `true` forces
+            // it even though the derived key is new, so the report carries the
+            // cleaning counters for THIS payload rather than for a cached one.
+            if (in_array('weather', $targets, true) || array_intersect(self::TLE_SOURCES, $targets) !== array()) {
+                $merged = self::merged(true);
+                $report['prepared'] = isset($merged['prepared']) ? $merged['prepared'] : array();
+                $report['snapshot'] = isset($merged['snapshot']) ? $merged['snapshot'] : array();
+                $report['merged_count'] = count((array) $merged['data']);
+            }
+        } catch (\Throwable $e) {
+            $report['ok'] = false;
+            $report['error'] = $e->getMessage();
+            Logger::error('reload_failed', array('error' => $e->getMessage()));
+        } finally {
+            $lock->release();
+        }
+
+        $report['finished_at'] = gmdate('Y-m-d\TH:i:s\Z');
+        $report['elapsed_ms'] = (int) round((microtime(true) - $started) * 1000);
+        $report['failed'] = $failed;
+        if ($skipped !== array()) {
+            $report['skipped'] = $skipped;
+        }
+        $report['ok'] = $report['ok'] && $failed === 0;
+
+        return $report;
     }
 
     /**

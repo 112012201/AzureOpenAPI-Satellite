@@ -1,0 +1,739 @@
+/* ==========================================================================
+   metro.css — a Windows (Modern / Metro) face on this site.
+
+   Loaded after app.css and md3.css, and it deliberately inherits their
+   structure: the HTML is the same document it was before, so nothing here has to
+   be re-wired. What this file changes is the language the page speaks:
+
+     * Segoe UI, light weights, generous leading — the type is the interface
+     * one accent (#0891b2) that only ever appears as a FILL: the current nav
+       item's underline, the first hero tile, a button, an inline link hover
+     * no radius, no shadow, no gradient: separation is a 1px hairline or a
+       surface step (this matches what md3.css already enforces)
+     * tiles: the hero statistics become square Metro tiles, and the feature
+       cards become tiles that take a 2px accent bar on hover
+     * a pivot-style section heading: small caps eyebrow over a light headline
+     * motion stays short and mechanical (md3.css owns the loading overlay's
+       motion; nothing here touches it)
+
+   The mainland-only footer (.cnfoot) is styled here too: it is part of the
+   Metro footer band, not a separate design.
+   ========================================================================== */
+
+:root {
+  --metro-font: 'Segoe UI Variable Display', 'Segoe UI', system-ui, -apple-system, 'Noto Sans SC',
+    'Microsoft YaHei', 'PingFang SC', sans-serif;
+  --metro-font-text: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, 'Noto Sans SC',
+    'Microsoft YaHei', 'PingFang SC', sans-serif;
+  --metro-accent: var(--accent, #0891b2);
+  --metro-accent-ink: var(--accent-ink, #0e7490);
+  /* The accent is a decoration OR a surface, and the two need different values.
+     #0891b2 under white text is 3.7:1 -- below AA for the 14px labels this site
+     puts on it -- so a SURFACE carrying text uses the darker ink (#0e7490, 5.4:1)
+     and the lighter accent stays for rules, bars and underlines, where contrast is
+     not a legibility question. This is the "填充颜色对比度过差" fix applied once at
+     the token, not per component. */
+  --metro-fill: #0e7490;
+  --metro-on-fill: #ffffff;
+  --metro-on-accent: #ffffff;
+  --metro-tile: var(--bg-elev, #ffffff);
+  --metro-tile-quiet: var(--bg-sunken, #eef2f6);
+  --metro-line: var(--line, #dde4ec);
+  --metro-ink: var(--fg, #0e1720);
+  --metro-ink-2: var(--fg-muted, #52616f);
+  --metro-radius: 0;
+}
+
+/* ---------- 1. type ---------- */
+
+body.metro,
+body.metro button,
+body.metro input,
+body.metro select,
+body.metro textarea {
+  font-family: var(--metro-font-text);
+  -webkit-font-smoothing: antialiased;
+}
+body.metro {
+  font-size: 15px;
+  line-height: 1.65;
+  letter-spacing: 0.005em;
+}
+body.metro h1,
+body.metro h2,
+body.metro h3,
+body.metro .hero h1,
+body.metro .section__head h2,
+body.metro .footer__title {
+  font-family: var(--metro-font);
+  letter-spacing: -0.01em;
+}
+body.metro h1 { font-weight: 300; }
+body.metro h2 { font-weight: 300; font-size: clamp(1.6rem, 3vw, 2.1rem); }
+body.metro h3 { font-weight: 400; font-size: 1.05rem; }
+body.metro p { max-width: 68ch; }
+body.metro .wrap { width: min(100% - 2 * var(--gutter, 20px), 1180px); margin-inline: auto; }
+body.metro a { color: var(--metro-accent-ink); text-decoration: none; }
+body.metro a:hover { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+body.metro :focus-visible { outline: 2px solid var(--metro-accent); outline-offset: 2px; }
+
+/* Small uppercase label — Metro's "pivot" eyebrow. */
+body.metro .eyebrow,
+body.metro .section__head .eyebrow,
+body.metro .card__meta {
+  display: inline-block;
+  font-family: var(--metro-font);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--metro-ink-2);
+}
+body.metro .section__head .eyebrow { margin-bottom: 0.35rem; }
+
+/* ---------- 2. header: flat bar, the current section underlined ---------- */
+
+body.metro .site-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--metro-tile);
+  border-bottom: 1px solid var(--metro-line);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+body.metro .site-header__inner {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  min-height: 56px;
+}
+body.metro .brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--metro-font);
+  font-weight: 600;
+  font-size: 0.98rem;
+  letter-spacing: 0.01em;
+  color: var(--metro-ink);
+}
+body.metro .brand__mark { color: var(--metro-accent); }
+body.metro .nav {
+  display: flex;
+  gap: 1.5rem;
+  margin-left: auto;
+  font-size: 0.9rem;
+}
+body.metro .nav a {
+  position: relative;
+  padding: 1.05rem 0 0.95rem;
+  color: var(--metro-ink-2);
+  border: 0;
+}
+body.metro .nav a:hover { color: var(--metro-ink); text-decoration: none; }
+/* The current section, not "whatever is first in the list".
+   This used to be `:first-child`, so the underline stayed on Overview no matter how
+   far down the page the reader was -- in the reported case the reader was looking at
+   the endpoints table while the nav claimed they were at the top. The markup now
+   carries aria-current="location" (the server sets it on the first section, so the
+   no-JS default is unchanged) and assets/app.js's scroll-spy moves it. */
+body.metro .nav a[aria-current='location'] {
+  color: var(--metro-ink);
+}
+body.metro .nav a[aria-current='location']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 3px;
+  background: var(--metro-accent);
+}
+body.metro .header__actions { display: flex; align-items: center; gap: 0.5rem; }
+body.metro .icon-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--metro-line);
+  border-radius: var(--metro-radius);
+  background: none;
+  color: var(--metro-ink-2);
+}
+body.metro .icon-btn:hover { background: var(--metro-tile-quiet); color: var(--metro-ink); }
+
+/* ---------- 3. hero ---------- */
+
+body.metro .hero {
+  padding-block: clamp(2.5rem, 6vw, 4.5rem) clamp(1.5rem, 4vw, 2.5rem);
+  border-bottom: 1px solid var(--metro-line);
+}
+body.metro .hero__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: clamp(1.5rem, 4vw, 3.5rem);
+  align-items: start;
+}
+body.metro .hero h1 {
+  margin: 0.6rem 0 1rem;
+  font-size: clamp(2.1rem, 5vw, 3.4rem);
+  line-height: 1.08;
+  font-weight: 200;
+  letter-spacing: -0.02em;
+}
+body.metro .hero .lede {
+  max-width: 46ch;
+  margin: 0 0 1.5rem;
+  font-size: 1.02rem;
+  color: var(--metro-ink-2);
+}
+body.metro .hero__cta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin: 0 0 0.9rem; }
+body.metro .hero__note { font-size: 0.82rem; color: var(--metro-ink-2); }
+
+/* Buttons: flat rectangles, accent only on the primary action. */
+body.metro .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 38px;
+  padding: 0 1.1rem;
+  border: 1px solid var(--metro-line);
+  border-radius: var(--metro-radius);
+  background: var(--metro-tile);
+  color: var(--metro-ink);
+  font-family: var(--metro-font);
+  font-size: 0.88rem;
+  font-weight: 400;
+  box-shadow: none;
+}
+body.metro .btn:hover { background: var(--metro-tile-quiet); text-decoration: none; }
+body.metro .btn--primary {
+  background: var(--metro-fill);
+  border-color: var(--metro-fill);
+  color: var(--metro-on-fill);
+  font-weight: 600;
+}
+body.metro .btn--primary:hover { filter: brightness(0.94); background: var(--metro-fill); color: var(--metro-on-fill); }
+body.metro .btn--ghost { background: none; }
+body.metro .btn svg { width: 1.05em; height: 1.05em; }
+
+/* Status pill: a Metro "live tile" chip. */
+body.metro .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.25rem 0.7rem;
+  background: var(--metro-tile-quiet);
+  border: 0;
+  border-radius: var(--metro-radius);
+  font-family: var(--metro-font);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+body.metro .pill__dot { width: 8px; height: 8px; background: var(--metro-ink-2); border-radius: 0; }
+body.metro .pill[data-state='ok'] { background: var(--metro-fill); color: var(--metro-on-fill); }
+body.metro .pill[data-state='ok'] .pill__dot { background: currentColor; }
+body.metro .pill[data-state='degraded'],
+body.metro .pill[data-state='critical'] { background: var(--warn-soft, #fde8cf); color: var(--warn-ink, #a35a06); }
+
+/* The live readout panel: a bordered plate, not a card. */
+body.metro .hero__panel {
+  padding: 1.1rem 1.25rem 1.25rem;
+  background: var(--metro-tile);
+  border: 1px solid var(--metro-ink);
+  border-radius: var(--metro-radius);
+  box-shadow: none;
+}
+body.metro .hero__panel h2 {
+  margin: 0 0 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--metro-ink-2);
+}
+body.metro .kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.3rem 1rem; margin: 0; }
+body.metro .kv dt {
+  font-family: var(--metro-font);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--metro-ink-2);
+}
+body.metro .kv dd { margin: 0; font-family: var(--metro-font); font-weight: 600; text-align: right; }
+
+/* ---------- 4. hero statistics -> Metro tiles ---------- */
+
+body.metro .stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 1.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+body.metro .stats li {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.2rem;
+  min-height: 116px;
+  padding: 0.9rem 1rem;
+  background: var(--metro-tile-quiet);
+  border: 0;
+  border-radius: var(--metro-radius);
+}
+/* The first tile is the accent one: in Metro exactly one tile carries the accent. */
+body.metro .stats li:first-child { background: var(--metro-fill); color: var(--metro-on-fill); }
+body.metro .stats__value {
+  font-family: var(--metro-font);
+  font-size: clamp(1.5rem, 2.6vw, 2.1rem);
+  font-weight: 300;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+/* Measured: the label carried `opacity: .85` over the muted ink, which lands at
+   ~4.2:1 on the quiet tile -- under AA for 12px text, and the reason the row read as
+   washed out. Fully opaque muted ink is 5.7:1; the value keeps the ink colour and
+   the tile states its own. */
+body.metro .stats li { color: var(--metro-ink); }
+body.metro .stats__value { color: inherit; }
+body.metro .stats__label {
+  font-size: 0.76rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--metro-ink-2);
+  opacity: 1;
+}
+body.metro .stats li:first-child .stats__label { color: var(--metro-on-fill); opacity: 1; }
+body.metro .stats__hint { margin-top: 0.75rem; font-size: 0.78rem; color: var(--metro-ink-2); }
+
+/* ---------- 5. sections ---------- */
+
+body.metro .section { padding-block: clamp(2.25rem, 5vw, 3.5rem); border-top: 1px solid var(--metro-line); }
+body.metro .section--tight { padding-block: clamp(1.75rem, 4vw, 2.75rem); }
+body.metro .section__head { max-width: 62ch; margin-bottom: clamp(1.25rem, 3vw, 2rem); }
+body.metro .section__head p { color: var(--metro-ink-2); }
+body.metro .section__head h2 { margin: 0 0 0.5rem; }
+
+/* Feature cards -> tiles with an accent bar on hover. */
+body.metro .grid--3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+body.metro .card {
+  position: relative;
+  padding: 1.1rem 1.15rem 1.15rem;
+  background: var(--metro-tile);
+  border: 1px solid var(--metro-line);
+  border-radius: var(--metro-radius);
+  box-shadow: none;
+}
+body.metro .card::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: -1px;
+  bottom: -1px;
+  width: 3px;
+  background: var(--metro-accent);
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+body.metro .card:hover::before { transform: scaleY(1); }
+body.metro .card__icon { display: inline-flex; color: var(--metro-accent); margin-bottom: 0.5rem; }
+body.metro .card__icon svg { width: 22px; height: 22px; }
+body.metro .card h3 { margin: 0 0 0.4rem; font-weight: 600; }
+body.metro .card p { margin: 0 0 0.5rem; font-size: 0.92rem; color: var(--metro-ink-2); }
+body.metro .card code { font-size: 0.85em; }
+
+/* ---------- 6. tables: hairline rows, uppercase header ---------- */
+
+body.metro .table-wrap { overflow-x: auto; border-top: 1px solid var(--metro-ink); }
+body.metro table.data { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+body.metro table.data caption {
+  caption-side: top;
+  padding: 0.5rem 0;
+  text-align: left;
+  font-family: var(--metro-font);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--metro-ink-2);
+}
+body.metro table.data th {
+  padding: 0.5rem 0.65rem;
+  background: none;
+  border-bottom: 1px solid var(--metro-ink);
+  font-family: var(--metro-font);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--metro-ink-2);
+  text-align: left;
+}
+body.metro table.data td { padding: 0.55rem 0.65rem; border-bottom: 1px solid var(--metro-line); vertical-align: top; }
+body.metro table.data tbody tr:hover td { background: var(--metro-tile-quiet); }
+body.metro table.data .path { font-family: var(--metro-font); font-size: 0.86rem; white-space: nowrap; }
+body.metro .badge--get {
+  display: inline-block;
+  padding: 0 0.4rem;
+  background: var(--metro-ink);
+  color: var(--metro-tile);
+  font-family: var(--metro-font);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+}
+
+/* ---------- 7. quickstart: pivot tabs + a dark code plate ---------- */
+
+body.metro .tabs .tablist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-bottom: 1px solid var(--metro-line);
+  margin-bottom: 1rem;
+}
+body.metro .tab {
+  padding: 0.55rem 1rem;
+  border: 0;
+  background: none;
+  color: var(--metro-ink-2);
+  font-family: var(--metro-font);
+  font-size: 0.86rem;
+}
+body.metro .tab[aria-selected='true'] {
+  color: var(--metro-ink);
+  box-shadow: inset 0 -3px 0 var(--metro-accent);
+}
+body.metro .tab:hover:not([aria-selected='true']) { color: var(--metro-ink); background: var(--metro-tile-quiet); }
+body.metro .code-block {
+  border: 1px solid var(--metro-ink);
+  border-radius: var(--metro-radius);
+  background: #1f1f1f;
+  color: #f2f2f2;
+  box-shadow: none;
+  overflow: hidden;
+}
+body.metro .code-block__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.45rem 0.6rem 0.45rem 0.9rem;
+  background: #1f1f1f;
+  border-bottom: 1px solid #3a3a3a;
+}
+body.metro .code-block__title {
+  font-family: var(--metro-font);
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #b8b8b8;
+}
+body.metro .copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid #555;
+  border-radius: var(--metro-radius);
+  background: none;
+  color: #e6e6e6;
+  font-family: var(--metro-font);
+  font-size: 0.74rem;
+}
+body.metro .copy-btn:hover { background: var(--metro-fill); border-color: var(--metro-fill); color: var(--metro-on-fill); }
+body.metro .code-block pre { margin: 0; padding: 0.9rem 1rem; overflow: auto; max-height: 26rem; }
+body.metro .code-block code { font-family: 'Cascadia Mono', Consolas, ui-monospace, monospace; font-size: 0.82rem; line-height: 1.6; color: inherit; background: none; }
+
+/* ---------- 8. attribution + callouts ---------- */
+
+body.metro .attrib { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+body.metro .attrib .card h3 { font-size: 1rem; }
+body.metro .attrib__tag { font-size: 0.74rem; color: var(--metro-ink-2); letter-spacing: 0.04em; }
+body.metro .callout {
+  padding: 0.85rem 1rem;
+  border: 0;
+  border-left: 3px solid var(--metro-accent);
+  border-radius: var(--metro-radius);
+  background: var(--metro-tile-quiet);
+  box-shadow: none;
+}
+
+/* ---------- 9. footer: light band with a hairline ---------- */
+
+body.metro .site-footer {
+  margin-top: clamp(2rem, 5vw, 3.5rem);
+  padding-block: 2rem 2.25rem;
+  background: var(--metro-tile-quiet);
+  border-top: 1px solid var(--metro-line);
+  color: var(--metro-ink-2);
+}
+body.metro .footer__title { margin: 0 0 0.4rem; font-size: 0.95rem; font-weight: 600; color: var(--metro-ink); }
+body.metro .footer__grid { display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(0, 1fr)); gap: 2rem; }
+body.metro .footer__links { margin: 0; padding: 0; list-style: none; font-size: 0.88rem; }
+body.metro .footer__links li { padding: 0.2rem 0; }
+body.metro .footer__bottom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin-top: 1.75rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--metro-line);
+  font-size: 0.78rem;
+}
+body.metro .footer__bottom p { margin: 0; }
+
+/* ---------- 10. the mainland-only notice ---------- */
+/*
+   Two paragraphs of legal text, so they are set for reading, not for decoration:
+   a full-width band inside the footer, a hairline above, and the fraud advice in
+   a box that is impossible to scroll past. The accent is a 3px left rule.
+*/
+body.metro .cnfoot {
+  margin-top: 1.75rem;
+  padding: 1rem 1.15rem 1.05rem;
+  background: var(--metro-tile);
+  border: 1px solid var(--metro-line);
+  border-left: 3px solid var(--metro-accent);
+  font-size: 0.86rem;
+  line-height: 1.8;
+  color: var(--metro-ink);
+}
+body.metro .cnfoot p { margin: 0; max-width: 92ch; }
+body.metro .cnfoot__fraud { font-weight: 600; }
+body.metro .cnfoot__policy { margin-top: 0.6rem; color: var(--metro-ink-2); }
+body.metro .cnfoot a { color: var(--metro-accent-ink); text-decoration: underline; text-underline-offset: 3px; }
+body.metro .cnfoot a:hover { background: var(--metro-fill); color: var(--metro-on-fill); text-decoration: none; }
+
+/* ---------- 11. legal + error pages ---------- */
+
+body.metro .legal__wrap { width: min(100% - 2 * var(--gutter, 20px), 900px); margin-inline: auto; padding-block: 2rem 3rem; }
+body.metro .legal__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1.25rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--metro-ink);
+}
+body.metro .legal__top .brand { font-family: var(--metro-font); font-weight: 600; font-size: 0.95rem; }
+body.metro .legal__nav { display: flex; flex-wrap: wrap; gap: 0.25rem 1.1rem; margin-left: auto; font-size: 0.86rem; }
+body.metro .legal__nav a { color: var(--metro-ink-2); padding: 0.35rem 0; }
+body.metro .legal__nav a[aria-current='page'] { color: var(--metro-ink); box-shadow: inset 0 -3px 0 var(--metro-accent); }
+body.metro .lang { display: flex; gap: 2px; }
+body.metro .lang__btn {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--metro-line);
+  border-radius: var(--metro-radius);
+  background: none;
+  color: var(--metro-ink-2);
+  font-family: var(--metro-font);
+  font-size: 0.78rem;
+}
+body.metro .lang__btn.is-active { background: var(--metro-fill); border-color: var(--metro-fill); color: var(--metro-on-fill); }
+body.metro .legal h1 { margin: 0.75rem 0 0.5rem; font-size: clamp(1.8rem, 4vw, 2.5rem); font-weight: 200; }
+body.metro .legal h2 { margin: 2rem 0 0.5rem; padding-top: 0.85rem; border-top: 1px solid var(--metro-line); font-size: 1.05rem; font-weight: 600; }
+body.metro .legal h3 { margin: 1.25rem 0 0.35rem; font-size: 0.98rem; font-weight: 600; }
+body.metro .legal p,
+body.metro .legal li { font-size: 0.95rem; line-height: 1.85; }
+body.metro .legal p { max-width: 74ch; }
+body.metro .legal__meta { font-family: var(--metro-font); font-size: 0.78rem; letter-spacing: 0.04em; color: var(--metro-ink-2); }
+body.metro .legal__lede { margin: 0 0 1.25rem; color: var(--metro-ink-2); }
+body.metro .legal__notice {
+  margin: 1.25rem 0;
+  padding: 0.85rem 1rem;
+  border: 0;
+  border-left: 3px solid var(--metro-accent);
+  background: var(--metro-tile-quiet);
+  font-size: 0.92rem;
+}
+body.metro .legal__cards { margin: 0.75rem 0 0; padding: 0; list-style: none; }
+body.metro .legal__cards li { padding: 0.7rem 0; border-bottom: 1px solid var(--metro-line); }
+body.metro .legal__cards a { font-family: var(--metro-font); }
+body.metro .legal__code { background: #1f1f1f; color: #f2f2f2; padding: 0.8rem 0.9rem; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 0.8rem; }
+body.metro .legal table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+body.metro .legal th { background: none; border-bottom: 1px solid var(--metro-ink); font-family: var(--metro-font); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; text-align: left; padding: 0.5rem 0.6rem; }
+body.metro .legal td { border-bottom: 1px solid var(--metro-line); padding: 0.5rem 0.6rem; vertical-align: top; }
+body.metro .legal td code { white-space: nowrap; }
+
+body.metro .error-page { padding-block: clamp(2rem, 6vw, 4rem); }
+body.metro .error-page__card { width: min(100% - 2 * var(--gutter, 20px), 680px); margin-inline: auto; }
+body.metro .error-page__code {
+  margin: 0 0 0.5rem;
+  font-family: var(--metro-font);
+  font-size: clamp(3rem, 10vw, 6rem);
+  font-weight: 200;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--metro-accent);
+}
+body.metro .error-page__card h1 { font-weight: 300; }
+body.metro .error-page__list { margin: 1rem 0 0; padding: 0; list-style: none; }
+body.metro .error-page__list li { display: flex; gap: 0.75rem; align-items: baseline; padding: 0.5rem 0; border-bottom: 1px solid var(--metro-line); }
+
+/* ---------- 12. responsive ---------- */
+
+@media (max-width: 1023px) {
+  body.metro .hero__grid { grid-template-columns: minmax(0, 1fr); }
+  body.metro .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body.metro .grid--3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body.metro .attrib { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body.metro .footer__grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  body.metro .nav { display: none; }
+  body.metro .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body.metro .stats li { min-height: 96px; }
+  body.metro .grid--3,
+  body.metro .attrib { grid-template-columns: minmax(0, 1fr); }
+  body.metro .footer__grid { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+  body.metro table.data .path { white-space: normal; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.metro .card::before { transition: none; }
+}
+
+/* ==========================================================================
+   13. the reported faults
+
+   Each block below answers one screenshot the operator sent. They are kept
+   together because they share a cause: rules that lived in app.css were written
+   for the earlier face, and Metro inherits app.css whether it wants to or not.
+   ========================================================================== */
+
+/* ---------- 13.1 square, everywhere the Metro face is used --------------- */
+/*
+ * md3.css carries the global `border-radius: 0` reset, but the legal and error
+ * pages load app.css + metro.css only. So every radius app.css declares survived
+ * on those pages: the language control was a pill, the two document cards and the
+ * code plate were rounded. Tying the rule to the FACE (body.metro) rather than to
+ * a stylesheet that may or may not be in the page makes the guarantee follow the
+ * design instead of the file list.
+ */
+body.metro *,
+body.metro *::before,
+body.metro *::after { border-radius: 0 !important; }
+
+/* ---------- 13.2 the app bar -------------------------------------------- */
+/*
+ * The nav item was picking up app.css's `.nav > a:hover` fill -- `--bg-sunken`,
+ * which is #060c14 in the dark theme -- so hovering a link punched a black
+ * rectangle into the bar. A Metro app bar marks hover with a rule, not a hole.
+ */
+body.metro .nav a:hover,
+body.metro .nav a:focus-visible {
+  background: none;
+  color: var(--metro-ink);
+  text-decoration: none;
+  box-shadow: inset 0 -3px 0 var(--metro-line);
+}
+body.metro .nav a[aria-current='location']:hover { box-shadow: inset 0 -3px 0 var(--metro-accent); }
+
+/* The theme button was a 36px outlined box in the middle of the bar. An app-bar
+   button is square and borderless until it is hovered. */
+body.metro .icon-btn {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: none;
+  color: var(--metro-ink-2);
+}
+body.metro .icon-btn:hover { background: var(--metro-tile-quiet); color: var(--metro-ink); }
+
+/* ---------- 13.3 the language selector ---------------------------------- */
+/*
+ * A segmented control: no container plate, no radius, one hairline between the
+ * segments, the current language filled. `.lang--header` is the compact form in
+ * the app bar, `.lang--inline` the one inside the error page's card, and the bare
+ * `.lang` is the legal pages' full-width row.
+ */
+body.metro .lang {
+  display: flex;
+  gap: 0;
+  padding: 0;
+  background: none;
+}
+body.metro .lang__btn {
+  margin-left: -1px;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid var(--metro-line);
+  background: none;
+  color: var(--metro-ink-2);
+  font-family: var(--metro-font);
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+body.metro .lang__btn:first-child { margin-left: 0; }
+body.metro .lang__btn:hover { background: var(--metro-tile-quiet); color: var(--metro-ink); }
+body.metro .lang__btn.is-active,
+body.metro .lang__btn.is-active:hover {
+  background: var(--metro-fill);
+  border-color: var(--metro-fill);
+  color: var(--metro-on-fill);
+  font-weight: 600;
+}
+/* In the app bar the control must not be allowed to shrink: a squeezed segmented
+   control loses its separators and reads as one run of text. */
+body.metro .lang--header {
+  flex: 0 0 auto;
+  margin: 0 0.4rem 0 0;
+}
+body.metro .lang--header .lang__btn {
+  padding: 0.24rem 0.55rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+body.metro .lang--inline { justify-content: flex-start; margin-top: 0.9rem; }
+
+/* ---------- 13.4 legal pages: the index and the plate -------------------- */
+/*
+ * app.css lays `.legal__cards` out as two rounded cards. On a Metro page the
+ * document index is a list with hairlines: it is navigation, not content.
+ */
+body.metro .legal__cards {
+  display: block;
+  grid-template-columns: none;
+  gap: 0;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+body.metro .legal__cards li {
+  padding: 0.7rem 0;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--metro-line);
+}
+body.metro .legal__cards a { font-family: var(--metro-font); font-weight: 600; }
+body.metro .legal__cards p { margin: 0.15rem 0 0; color: var(--metro-ink-2); font-size: 0.92rem; }
+
+/* The example request is a terminal plate: dark, square, monospaced, wrapping
+   rather than scrolling off the side. */
+body.metro .legal__code {
+  display: block;
+  margin: 0.75rem 0 0;
+  padding: 0.8rem 0.9rem;
+  background: #1f1f1f;
+  border: 1px solid #1f1f1f;
+  color: #e8e8e8;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+  font-size: 0.8rem;
+  line-height: 1.7;
+}
+
+/* The mainland edition states its own scope instead of showing a dead picker. */
+body.metro .legal__only {
+  flex: 1 0 100%;
+  margin: 0.6rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--metro-accent);
+  background: var(--metro-tile-quiet);
+  color: var(--metro-ink);
+  font-size: 0.84rem;
+}
+body.metro .legal__only p { margin: 0; max-width: none; }
+
+body.metro .error-page__lang { margin-top: 1rem; }

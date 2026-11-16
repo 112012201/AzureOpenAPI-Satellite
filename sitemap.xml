@@ -1,33 +1,54 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Every URL here must be canonical, indexable and served on https://satellite.authskin.xyz.
+
+  What went wrong before, so it is not repeated: this file listed six addresses on a
+  hostname that does not resolve at all, so the entire submission was a list of dead
+  URLs, and a sitemap a crawler finds false stops being fetched. tests/run.php now
+  asserts that every entry starts with Seo::site() and names a path this application
+  actually serves, so it cannot drift from the pages again.
+-->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-        <loc>https://satellite.api.authskin.xyz/</loc>
+        <loc>https://satellite.authskin.xyz/</loc>
+        <lastmod>2026-11-14</lastmod>
         <changefreq>weekly</changefreq>
         <priority>1.0</priority>
     </url>
     <url>
-        <loc>https://satellite.api.authskin.xyz/docs</loc>
+        <loc>https://satellite.authskin.xyz/docs</loc>
+        <lastmod>2026-11-14</lastmod>
         <changefreq>weekly</changefreq>
-        <priority>0.8</priority>
+        <priority>0.9</priority>
     </url>
     <url>
-        <loc>https://satellite.api.authskin.xyz/openapi.yaml</loc>
-        <changefreq>weekly</changefreq>
+        <loc>https://satellite.authskin.xyz/openapi.yaml</loc>
+        <lastmod>2026-11-14</lastmod>
+        <changefreq>monthly</changefreq>
         <priority>0.6</priority>
     </url>
     <url>
-        <loc>https://satellite.api.authskin.xyz/legal</loc>
+        <loc>https://satellite.authskin.xyz/legal</loc>
+        <lastmod>2026-11-14</lastmod>
         <changefreq>monthly</changefreq>
         <priority>0.5</priority>
     </url>
     <url>
-        <loc>https://satellite.api.authskin.xyz/privacy</loc>
+        <loc>https://satellite.authskin.xyz/privacy</loc>
+        <lastmod>2026-11-14</lastmod>
         <changefreq>monthly</changefreq>
-        <priority>0.4</priority>
+        <priority>0.5</priority>
     </url>
     <url>
-        <loc>https://satellite.api.authskin.xyz/terms</loc>
+        <loc>https://satellite.authskin.xyz/terms</loc>
+        <lastmod>2026-11-14</lastmod>
         <changefreq>monthly</changefreq>
-        <priority>0.4</priority>
+        <priority>0.5</priority>
+    </url>
+    <url>
+        <loc>https://satellite.authskin.xyz/no-acceleration</loc>
+        <lastmod>2026-11-14</lastmod>
+        <changefreq>yearly</changefreq>
+        <priority>0.3</priority>
     </url>
 </urlset>

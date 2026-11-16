@@ -1,0 +1,193 @@
+/* ==========================================================================
+   holiday.css — the component layer every holiday theme shares.
+
+   Loaded after theme.css and before the theme's palette file. It is deliberately
+   PALETTE-AGNOSTIC: every colour it names is a variable (`--bg`, `--fg`, `--accent`,
+   `--metro-fill`, …), so the same rules paint a red New Year, a deeper red Spring
+   Festival and a green-and-gold Christmas without a second copy of this file.
+
+   That split is the whole point. A theme is a PALETTE plus an EFFECT plus (optionally)
+   music; the moment two themes each carry their own copy of "how a button looks", one
+   of them starts drifting and nobody notices until the holidays.
+
+   Stacking lives here because it is structural, not palette: the effect canvas sits at
+   z-index 0 and the document is lifted above it.
+   ========================================================================== */
+
+/* ---------- 1. the document above the effect ---------------------------- */
+body[data-season]:not([data-season='default']) > header,
+body[data-season]:not([data-season='default']) > main,
+body[data-season]:not([data-season='default']) > footer,
+body[data-season]:not([data-season='default']) > .legal__wrap,
+body[data-season]:not([data-season='default']) main,
+body[data-season]:not([data-season='default']) .site-header,
+body[data-season]:not([data-season='default']) .site-footer,
+body[data-season]:not([data-season='default']) .legal__wrap,
+body[data-season]:not([data-season='default']) .error-page {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------- 2. chrome: a hairline of the theme's accent ----------------- */
+body[data-season]:not([data-season='default']) .site-header {
+  background: color-mix(in srgb, var(--bg-elev) 92%, transparent);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: saturate(120%) blur(6px);
+}
+body[data-season]:not([data-season='default']) .site-header .brand__mark { color: var(--accent); }
+body[data-season]:not([data-season='default']) .nav a[aria-current='location'] { color: var(--fg); }
+body[data-season]:not([data-season='default']) .nav a[aria-current='location']::after { background: var(--accent); }
+body[data-season]:not([data-season='default']) .nav a:hover { color: var(--accent); }
+body[data-season]:not([data-season='default']) .icon-btn:hover { background: var(--bg-sunken); color: var(--accent); }
+
+body[data-season]:not([data-season='default']) .announce,
+body[data-season]:not([data-season='default']) .enote {
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--line);
+  color: var(--fg);
+}
+
+/* ---------- 3. buttons, tiles, links ------------------------------------ */
+body[data-season]:not([data-season='default']) .btn {
+  border-color: var(--line);
+  background: var(--bg-elev);
+  color: var(--fg);
+}
+body[data-season]:not([data-season='default']) .btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--bg-sunken);
+}
+body[data-season]:not([data-season='default']) .btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-primary);
+  font-weight: 600;
+}
+body[data-season]:not([data-season='default']) .btn--primary:hover {
+  filter: brightness(1.08);
+  color: var(--on-primary);
+}
+
+body[data-season]:not([data-season='default']) .stats li {
+  background: var(--metro-tile-quiet);
+  border: 1px solid var(--line);
+}
+body[data-season]:not([data-season='default']) .stats li:first-child {
+  background: linear-gradient(160deg, var(--metro-fill), color-mix(in srgb, var(--metro-fill) 62%, #000));
+  border-color: var(--metro-fill);
+  color: var(--metro-on-fill);
+}
+body[data-season]:not([data-season='default']) .pill { background: var(--bg-sunken); color: var(--fg-muted); }
+body[data-season]:not([data-season='default']) .pill[data-state='ok'] {
+  background: var(--metro-fill);
+  color: var(--metro-on-fill);
+}
+
+body[data-season]:not([data-season='default']) .card,
+body[data-season]:not([data-season='default']) .hero__panel,
+body[data-season]:not([data-season='default']) .cnfoot,
+body[data-season]:not([data-season='default']) .legal__only,
+body[data-season]:not([data-season='default']) .panel {
+  background: var(--bg-elev);
+  border-color: var(--line);
+}
+body[data-season]:not([data-season='default']) .card::before { background: var(--accent); }
+body[data-season]:not([data-season='default']) .card__icon { color: var(--accent); }
+
+body[data-season]:not([data-season='default']) a { color: var(--accent-ink); }
+body[data-season]:not([data-season='default']) a:hover { color: var(--accent); }
+
+body[data-season]:not([data-season='default']) .code-block,
+body[data-season]:not([data-season='default']) .legal__code {
+  background: var(--bg-sunken);
+  border-color: var(--line);
+}
+body[data-season]:not([data-season='default']) .code-block__bar {
+  background: var(--bg-sunken);
+  border-bottom-color: var(--line);
+}
+
+body[data-season]:not([data-season='default']) table.data th {
+  border-bottom-color: var(--accent);
+  color: var(--fg-muted);
+}
+body[data-season]:not([data-season='default']) table.data td { border-bottom-color: var(--line); }
+body[data-season]:not([data-season='default']) .badge--get { background: var(--accent); color: var(--on-primary); }
+
+body[data-season]:not([data-season='default']) .lang__btn { border-color: var(--line); color: var(--fg-muted); }
+body[data-season]:not([data-season='default']) .lang__btn:hover { background: var(--bg-sunken); color: var(--fg); }
+body[data-season]:not([data-season='default']) .lang__btn.is-active,
+body[data-season]:not([data-season='default']) .lang__btn.is-active:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-primary);
+}
+
+body[data-season]:not([data-season='default']) .site-footer {
+  background: var(--bg-sunken);
+  border-top: 1px solid var(--accent);
+  color: var(--fg-muted);
+}
+body[data-season]:not([data-season='default']) .footer__title { color: var(--fg); }
+
+body[data-season]:not([data-season='default']) .consent__panel,
+body[data-season]:not([data-season='default']) .anm__panel {
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--accent);
+  color: var(--fg);
+}
+body[data-season]:not([data-season='default']) .anm__title,
+body[data-season]:not([data-season='default']) .consent__title { color: var(--fg); }
+body[data-season]:not([data-season='default']) .anm__body,
+body[data-season]:not([data-season='default']) .consent__panel p { color: var(--fg); }
+body[data-season]:not([data-season='default']) .anm__chip[data-level='important'],
+body[data-season]:not([data-season='default']) .anm__chip[data-level='urgent'] {
+  background: var(--metro-fill);
+  color: var(--metro-on-fill);
+}
+
+/* ---------- 4. the loading screen --------------------------------------- */
+/* The overlay paints `var(--surface)` and draws with currentColor, so the palette
+   covers most of it; these lines make the greeting and the rail read as the theme. */
+/*
+ * The loading screen follows the theme.
+ *
+ * The default overlay is opaque: its own `--surface` plus the designed fog in
+ * `.boot__bg` (a three-gradient blur). Left alone, a themed page would show the same
+ * neutral loading screen with only the greeting changed -- "the colour follows the theme"
+ * would be a claim about a tint nobody can see.
+ *
+ * So the fog keeps its composition (that design is not this file's business to redraw)
+ * but its base colour becomes the theme's, and the overlay stops being neutral. It stays
+ * effectively opaque: at 55% the page behind it read through as a mess, which is worse
+ * than a themed opaque screen.
+ */
+body[data-season]:not([data-season='default']) .boot {
+  background: var(--surface);
+}
+body[data-season]:not([data-season='default']) .boot__bg {
+  background:
+    radial-gradient(120% 90% at 18% 12%, color-mix(in oklab, var(--primary) 30%, transparent), transparent 62%),
+    radial-gradient(90% 80% at 88% 84%, color-mix(in oklab, var(--secondary) 22%, transparent), transparent 60%),
+    linear-gradient(160deg, color-mix(in oklab, var(--bg-elev) 94%, #000), color-mix(in oklab, var(--bg-sunken) 96%, #000));
+}
+body[data-season]:not([data-season='default']) .boot__value,
+body[data-season]:not([data-season='default']) .boot__symbol { color: var(--fg); }
+body[data-season]:not([data-season='default']) .boot__progressBar { background: var(--accent); }
+
+/* ---------- 5. the two control bars ------------------------------------- */
+body[data-season]:not([data-season='default']) .seasonbadge,
+body[data-season]:not([data-season='default']) .themebar {
+  color: var(--fg);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--bg-sunken) 92%, transparent);
+}
+body[data-season]:not([data-season='default']) .seasonbadge__mark { background: var(--accent); }
+body[data-season]:not([data-season='default']) .seasonbadge__exit:hover,
+body[data-season]:not([data-season='default']) .themebar__btn:hover {
+  background: var(--accent);
+  color: var(--on-primary);
+  border-color: var(--accent);
+}

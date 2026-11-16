@@ -249,13 +249,68 @@ final class Request
     }
 
     /**
-     * `?format=` normalised to one of: tle, json, txt, ndjson.
+     * The representation to answer with, normalised to one of: tle, json, txt,
+     * ndjson.
+     *
+     * Precedence, highest first:
+     *
+     *   1. `?json=` — an explicit statement of format. `?json=true` (or `1`, `yes`,
+     *      `on`, or a bare `?json`) asks for JSON, `?json=false` (or `0`, `no`,
+     *      `off`) asks for standard TLE text. This outranks both `?format=` and the
+     *      Accept header, because it is what a person typing a URL reaches for and
+     *      it must not be outvoted by whatever the browser or a wrapper happens to
+     *      put in Accept.
+     *
+     *      It exists because the DEFAULT is standard TLE text: a plain browser tab
+     *      on /v1/tle shows 20-column TLE, and JSON is one query parameter away.
+     *      Before this, a wrapper that sent `Accept: application/json` silently turned
+     *      every TLE URL into JSON -- the header was choosing the representation on
+     *      the caller's behalf, which is exactly the confusion this switch removes.
+     *
+     *   2. `?format=` — the original switch, kept byte-compatible. It also accepts
+     *      media-type spellings (`format=application/json`, `format=text/plain`).
+     *
+     *   3. Accept negotiation — an API client that explicitly names
+     *      `application/json` still gets JSON, which is correct content negotiation
+     *      and what existing integrations rely on. A browser does not send that, so a
+     *      browser gets text. **Pass `$acceptMayChoose = false` to switch this off**
+     *      where the representation must depend on the URL alone; see the note below.
+     *
+     * WHY AN ENDPOINT MIGHT REFUSE TO LET ACCEPT DECIDE
+     *
+     * A representation chosen by a request header is only safe behind a shared cache
+     * that keys on that header. Measured on 2026-10-28 through the SCDN edge:
+     *
+     *     GET /v1/tle?limit=3  Accept: application/json   -> JSON, edge MISS then HIT
+     *     GET /v1/tle?limit=3  Accept: text/plain         -> JSON, edge HIT   <-- wrong
+     *     response: vary: Accept-Encoding                  <-- Accept is not in Vary
+     *
+     * So whoever fills the cache entry first decides what everybody else receives.
+     * The TLE routes therefore pass `false`: their format is `?json=`, then
+     * `?format=`, and nothing else. That is also what makes `/v1/tle` genuinely
+     * default to TLE text for every client rather than "text unless your Accept says
+     * otherwise, or unless a stranger warmed the cache".
+     *
+     * @param string[] $allowed formats this endpoint can answer with
+     * @param bool     $acceptMayChoose false to make the response depend on the URL only
+     * @return string|null null when a value was given but the endpoint cannot honour
+     *                     it, so the caller answers 400 instead of guessing
      */
-    public function format($allowed = array('tle', 'json'))
+    public function format($allowed = array('tle', 'json'), $acceptMayChoose = true)
     {
+        // 1. the explicit switch
+        if ($this->param('json', null) !== null) {
+            $want = $this->bool('json', true) ? 'json' : 'tle';
+            // A JSON-only endpoint (Catalog) cannot answer `?json=false`; that is an
+            // unsupported request for this endpoint, not a format preference.
+            return in_array($want, $allowed, true) ? $want : null;
+        }
+
+        // 2. ?format=
         $format = strtolower(trim((string) $this->param('format', '')));
         if ($format === '') {
-            return $this->wantsJson() ? 'json' : $allowed[0];
+            // 3. Accept (when the endpoint allows it), then the endpoint's own default.
+            return ($acceptMayChoose && $this->wantsJson()) ? 'json' : $allowed[0];
         }
         $aliases = array(
             'application/json' => 'json',

@@ -12,7 +12,7 @@ openapi: 3.1.0
 
 info:
   title: AzureOpenAPI for Satellite
-  version: 3.1.2789-beta
+  version: 3.3.0+ra
   summary: Unified TLE and satellite metadata proxy.
   description: |
     Unified TLE and satellite metadata proxy (CelesTrak, AMSAT, SatNOGS).
@@ -78,9 +78,21 @@ externalDocs:
 
 servers:
   - url: https://satellite.api.authskin.xyz
-    description: Tencent Cloud EdgeOne accelerated (recommended)
+    description: Tencent Cloud EdgeOne accelerated (recommended, stable)
+  - url: https://satellite.db.authskin.xyz
+    description: |
+      SCDN accelerated — **new address, under test**. Same application, same
+      routes, same limits; only the edge differs. It is marked `status: new` and
+      `testing: true` in `meta.endpoint`, and the browser pages carry a notice
+      saying so. Two consequences a client should know:
+
+        * the edge reports its cache verdict in `X-Cache-Status`, a name the origin
+          also uses, so the head loses the origin verdict — read
+          `X-Origin-Cache-Status` for that;
+        * the address may change behaviour without notice while it is being
+          characterised.
   - url: https://satellite.authskin.xyz
-    description: Direct origin
+    description: Direct origin (no CDN; useful for bypassing both edges)
 
 tags:
   - name: TLE
@@ -93,11 +105,26 @@ tags:
       SatNOGS satellite and transmitter metadata, paginated and projected
       server-side because the upstream transmitter document is about 4 MB.
   - name: AMSAT
-    description: AMSAT live status reports.
+    description: |
+      Two AMSAT surfaces, deliberately separate:
+
+      * `/v1/amsat/status` — this service's own report feed, scraped from the
+        amsat.org status page and normalised into the `/v1` envelope.
+      * `/v1/amsat/{catalog,reports,summary,statuses,health,satellites,sat-info}` —
+        a transparent relay of AMSAT's own v1 JSON API at
+        https://status.amsat.org/api/v1/. The body is AMSAT's document unchanged,
+        so the schemas describe THEIR shapes rather than this service's envelope.
+        Reads only: `POST /reports.php` is not proxied.
   - name: System
     description: |
       Service metadata, health, readiness, liveness, the HTML dashboard and the
-      per-endpoint maintenance state.
+      per-endpoint maintenance state, plus the privacy/terms acknowledgement
+      contract and the proof-of-work exchange the browser entry points use.
+  - name: Admin
+    description: |
+      Operator surface. Not listed in `/v1/meta` and not part of the public
+      contract: authenticated by a shared token, and absent (404) on any deployment
+      that has not configured one.
   - name: Legacy
     description: |
       Deprecated pre-v1 surface. Every operation here is `deprecated: true` and
@@ -124,19 +151,27 @@ paths:
         and SatNOGS. Records are de-duplicated by NORAD id and the copy with the
         newest epoch wins.
 
-        `format=tle` (default) returns classical 20-column TLE text: three lines
-        per satellite (name line, line 1, line 2) preceded by a `#` comment
-        header block, which `meta=false` / `include_meta=false` removes.
-        `format=json` returns the envelope whose `data` is an array of
-        `TleRecord`. Conditional requests are supported (`If-None-Match` yields
-        `304`), and while the merged document is rebuilt the previous copy is
-        still served with `X-Cache-Status: STALE`.
+        The default representation is **standard TLE text**: 20-column, three lines
+        per satellite (name line, line 1, line 2) preceded by a `#` comment header
+        block, which `meta=false` / `include_meta=false` removes. That is what a
+        plain browser tab shows.
+
+        JSON is requested explicitly, with `json=true` (the preferred switch) or
+        `format=json`; both return the envelope whose `data` is an array of
+        `TleRecord`. **The representation depends on the URL alone -- the `Accept`
+        header is ignored on this route.** That is deliberate: the edge does not key
+        on `Accept` (the response carries `vary: Accept-Encoding` only), so a JSON
+        variant warmed by one client used to be served to the next client that asked
+        for text at the same URL. Conditional requests are supported
+        (`If-None-Match` yields `304`), and while the merged document is rebuilt the
+        previous copy is still served with `X-Cache-Status: STALE`.
       tags: [TLE]
       x-endpoint-id: tle_merge
       x-cache-ttl: 3600
       parameters:
         - $ref: '#/components/parameters/GroupParam'
         - $ref: '#/components/parameters/FormatParam'
+        - $ref: '#/components/parameters/JsonParam'
         - $ref: '#/components/parameters/NoradParam'
         - $ref: '#/components/parameters/LimitParam'
         - $ref: '#/components/parameters/MetaParam'
@@ -191,6 +226,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/SourceParam'
         - $ref: '#/components/parameters/FormatParam'
+        - $ref: '#/components/parameters/JsonParam'
         - $ref: '#/components/parameters/NoradParam'
         - $ref: '#/components/parameters/LimitParam'
         - $ref: '#/components/parameters/MetaParam'
@@ -375,6 +411,323 @@ paths:
         '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  # ---------------------------------------------------------------------------
+  # AMSAT upstream API (v1), relayed verbatim
+  #
+  # These seven paths are a transparent proxy of https://status.amsat.org/api/v1/.
+  # The body is AMSAT's own document, byte for byte -- NOT this service's
+  # {meta, data} envelope -- so the schemas below describe THEIR shapes and a
+  # client can follow AMSAT's documentation (see /v1/amsat/catalog's description
+  # for the reference links).
+  #
+  # AMSAT asks clients not to poll more often than every 5 minutes. The cache
+  # honours that per canonical URL (x-cache-ttl: 300) and only the documented
+  # query parameters are forwarded; unknown ones are dropped and numeric ones are
+  # clamped to the ranges published here, so a repeated request never reaches
+  # AMSAT more than once per window.
+  #
+  # POST /reports.php is NOT proxied. This service is a read-only mirror, and
+  # relaying writes would make it an anonymous relay into AMSAT's database; the
+  # route answers 405. Submit observations directly to AMSAT.
+  #
+  # Measured 2026-11-03: catalog, reports, summary and both legacy shapes return
+  # empty arrays because the upstream database is empty; statuses and health have
+  # content. An empty `data` is the upstream's real state, not a failure here.
+  # /v1/amsat/status is a DIFFERENT source (the amsat.org HTML page) and still
+  # returns rows -- do not treat the two as interchangeable.
+  # ---------------------------------------------------------------------------
+  /v1/amsat/catalog:
+    get:
+      operationId: proxyAmsatCatalog
+      summary: AMSAT satellite catalog (proxied)
+      description: |
+        Relay of `GET https://status.amsat.org/api/v1/catalog.php` — the satellites
+        AMSAT tracks, with links and optional report statistics.
+
+        Upstream reference:
+        [`/api/v1/`](https://status.amsat.org/api/v1/),
+        [`docs.php`](https://status.amsat.org/api/v1/docs.php),
+        [`openapi.php`](https://status.amsat.org/api/v1/openapi.php).
+      tags: [AMSAT]
+      x-endpoint-id: amsat_catalog
+      x-cache-ttl: 300
+      x-upstream: https://status.amsat.org/api/v1/catalog.php
+      parameters:
+        - $ref: '#/components/parameters/AmsatNameParam'
+        - $ref: '#/components/parameters/AmsatIncludeStatsParam'
+      responses:
+        '200':
+          description: AMSAT's catalog document, unchanged.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Cache-Age: { $ref: '#/components/headers/XCacheAge' }
+            X-Cache-TTL: { $ref: '#/components/headers/XCacheTTL' }
+            X-Amsat-Source: { $ref: '#/components/headers/XAmsatSource' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/AmsatSatellite' }
+                  meta:
+                    type: object
+                    additionalProperties: true
+                    description: Counts and paging as the upstream produces them.
+        '304': { $ref: '#/components/responses/NotModified' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /v1/amsat/reports:
+    get:
+      operationId: proxyAmsatReports
+      summary: AMSAT status reports, searchable (proxied)
+      description: |
+        Relay of `GET https://status.amsat.org/api/v1/reports.php` — the status
+        reports stations have filed for the last hours or days.
+
+        Read-only here: submitting a report is `POST` on the upstream and is not
+        proxied, so this path has no working write counterpart.
+      tags: [AMSAT]
+      x-endpoint-id: amsat_reports
+      x-cache-ttl: 300
+      x-upstream: https://status.amsat.org/api/v1/reports.php
+      parameters:
+        - $ref: '#/components/parameters/AmsatNameParam'
+        - $ref: '#/components/parameters/AmsatHoursParam'
+        - name: since
+          in: query
+          description: Only reports at or after this instant. Canonicalised to RFC 3339 UTC before the cache key is computed.
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/AmsatLimitParam'
+        - name: callsign
+          in: query
+          description: Reporter callsign, exact match.
+          schema: { type: string }
+        - name: grid_square
+          in: query
+          description: Maidenhead grid square, up to 6 characters.
+          schema: { type: string }
+        - $ref: '#/components/parameters/AmsatReportStatusParam'
+      responses:
+        '200':
+          description: AMSAT's report search document, unchanged.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Cache-Age: { $ref: '#/components/headers/XCacheAge' }
+            X-Cache-TTL: { $ref: '#/components/headers/XCacheTTL' }
+            X-Amsat-Source: { $ref: '#/components/headers/XAmsatSource' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/AmsatUpstreamReport' }
+                  meta:
+                    type: object
+                    additionalProperties: true
+        '304': { $ref: '#/components/responses/NotModified' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    post:
+      operationId: proxyAmsatReportsRejected
+      summary: Not proxied (read-only service)
+      description: |
+        AMSAT's `POST /reports.php` submits an observation. This service relays
+        reads only, so the method is answered with `405` and an `Allow: GET, HEAD`
+        header. Submit the report to AMSAT directly.
+      tags: [AMSAT]
+      deprecated: true
+      responses:
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+
+  /v1/amsat/summary:
+    get:
+      operationId: proxyAmsatSummary
+      summary: AMSAT report activity summary (proxied)
+      description: Relay of `GET https://status.amsat.org/api/v1/summary.php`.
+      tags: [AMSAT]
+      x-endpoint-id: amsat_summary
+      x-cache-ttl: 300
+      x-upstream: https://status.amsat.org/api/v1/summary.php
+      parameters:
+        - $ref: '#/components/parameters/AmsatHoursParam'
+      responses:
+        '200':
+          description: AMSAT's summary document, unchanged.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Cache-Age: { $ref: '#/components/headers/XCacheAge' }
+            X-Cache-TTL: { $ref: '#/components/headers/XCacheTTL' }
+            X-Amsat-Source: { $ref: '#/components/headers/XAmsatSource' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                      description: One row per satellite and report-status combination.
+                  meta:
+                    type: object
+                    additionalProperties: true
+        '304': { $ref: '#/components/responses/NotModified' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /v1/amsat/statuses:
+    get:
+      operationId: proxyAmsatStatusValues
+      summary: AMSAT canonical report status values (proxied)
+      description: |
+        Relay of `GET https://status.amsat.org/api/v1/statuses.php`: the report
+        values AMSAT accepts, with their display labels. Useful to validate
+        `status=` on `/v1/amsat/reports` without hard-coding them.
+
+        Not to be confused with `/v1/amsat/status`: that one is this service's
+        scraped report feed, this one is AMSAT's enumerated vocabulary.
+      tags: [AMSAT]
+      x-endpoint-id: amsat_statuses
+      x-cache-ttl: 300
+      x-upstream: https://status.amsat.org/api/v1/statuses.php
+      responses:
+        '200':
+          description: AMSAT's status-value document, unchanged.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Cache-Age: { $ref: '#/components/headers/XCacheAge' }
+            X-Cache-TTL: { $ref: '#/components/headers/XCacheTTL' }
+            X-Amsat-Source: { $ref: '#/components/headers/XAmsatSource' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/AmsatStatusValue' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /v1/amsat/health:
+    get:
+      operationId: proxyAmsatHealth
+      summary: AMSAT upstream API health (proxied)
+      description: |
+        Relay of `GET https://status.amsat.org/api/v1/health.php`: whether AMSAT's
+        API and database are reachable. That is the upstream's own verdict, a
+        different question from `/v1/health` (is THIS service up).
+      tags: [AMSAT]
+      x-endpoint-id: amsat_health
+      x-cache-ttl: 300
+      x-upstream: https://status.amsat.org/api/v1/health.php
+      responses:
+        '200':
+          description: AMSAT's health document, unchanged.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Cache-Age: { $ref: '#/components/headers/XCacheAge' }
+            X-Cache-TTL: { $ref: '#/components/headers/XCacheTTL' }
+            X-Amsat-Source: { $ref: '#/components/headers/XAmsatSource' }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/AmsatUpstreamHealth' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /v1/amsat/satellites:
+    get:
+      operationId: proxyAmsatLegacySatellites
+      summary: AMSAT legacy satellite array (proxied)
+      description: |
+        Relay of the legacy `GET https://status.amsat.org/api/v1/satellites.php`:
+        a plain JSON array, not an envelope. Kept because existing clients consume
+        exactly this shape; new code should use `/v1/amsat/catalog`.
+      tags: [AMSAT]
+      x-endpoint-id: amsat_satellites
+      x-cache-ttl: 300
+      x-upstream: https://status.amsat.org/api/v1/satellites.php
+      responses:
+        '200':
+          description: A plain array, unchanged from the upstream.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Cache-Age: { $ref: '#/components/headers/XCacheAge' }
+            X-Cache-TTL: { $ref: '#/components/headers/XCacheTTL' }
+            X-Amsat-Source: { $ref: '#/components/headers/XAmsatSource' }
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AmsatSatellite' }
+        '304': { $ref: '#/components/responses/NotModified' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /v1/amsat/sat-info:
+    get:
+      operationId: proxyAmsatLegacySatInfo
+      summary: AMSAT legacy report array (proxied)
+      description: |
+        Relay of the legacy `GET https://status.amsat.org/api/v1/sat_info.php`:
+        a plain JSON array of reports. Its `hours` ceiling is 96, not 720 — that
+        is the upstream's own limit for this shape.
+      tags: [AMSAT]
+      x-endpoint-id: amsat_sat_info
+      x-cache-ttl: 300
+      x-upstream: https://status.amsat.org/api/v1/sat_info.php
+      parameters:
+        - $ref: '#/components/parameters/AmsatNameParam'
+        - name: hours
+          in: query
+          description: Look-back window in hours (upstream range 1-96).
+          schema: { type: integer, minimum: 1, maximum: 96, default: 24 }
+      responses:
+        '200':
+          description: A plain array, unchanged from the upstream.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Cache-Control: { $ref: '#/components/headers/CacheControl' }
+            X-Cache-Status: { $ref: '#/components/headers/XCacheStatus' }
+            X-Cache-Age: { $ref: '#/components/headers/XCacheAge' }
+            X-Cache-TTL: { $ref: '#/components/headers/XCacheTTL' }
+            X-Amsat-Source: { $ref: '#/components/headers/XAmsatSource' }
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AmsatUpstreamReport' }
+        '304': { $ref: '#/components/responses/NotModified' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
@@ -635,6 +988,195 @@ paths:
         '503': { $ref: '#/components/responses/AdminDisabled' }
 
   # ---------------------------------------------------------------------------
+  # Consent and proof of work
+  #
+  # These existed in the service before this document described them: the whole
+  # subsystem (the acknowledgement contract, the 451 response, the Cap challenge
+  # and its two endpoints) was missing from the spec, which meant a client reading
+  # only the spec could not discover that a 451 was possible at all. That gap is
+  # what these two paths close.
+  # ---------------------------------------------------------------------------
+  /v1/consent/status:
+    get:
+      operationId: getConsentStatus
+      summary: Current acknowledgement contract and what this request has provided
+      description: |
+        Reports the documents that must be acknowledged, the current version, and
+        the verdict for THIS request (read from `?consent=` or the `X-Consent`
+        header).
+
+        The contract is stateless on purpose: the acknowledgement is a query
+        parameter or a header, never a signed token, so that every API response
+        stays cacheable at the CDN. The trade-off is stated plainly: the
+        acknowledgement is a client statement, not proof.
+      tags: [System]
+      parameters:
+        - { name: consent, in: query, required: false, schema: { type: string }, description: 'Comma-separated document names, e.g. `privacy,terms`. Aliases such as `tos` and `privacy-policy` are accepted.', example: 'privacy,terms' }
+        - { name: consent_version, in: query, required: false, schema: { type: integer, minimum: 1 }, description: 'Version of the documents the client agreed to. A mismatch with the published version yields `state: stale`.' }
+      responses:
+        '200':
+          description: 'The contract plus this request''s verdict.'
+          headers:
+            X-Consent-Required: { $ref: '#/components/headers/XConsentRequired' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+            X-Service-Version: { $ref: '#/components/headers/XServiceVersion' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [meta, data]
+                properties:
+                  meta: { $ref: '#/components/schemas/Meta' }
+                  data: { $ref: '#/components/schemas/ConsentStatus' }
+              examples:
+                unacknowledged:
+                  summary: 'Nothing provided yet'
+                  value:
+                    meta: { service: AzureOpenAPI for Satellite, version: 3.3.0+ra, api_version: v1, generated: '2026-10-28T12:00:00Z', request_id: req_1a2b3c4d5e6f7a8b, elapsed_ms: 3, endpoint: { id: scdn, host: satellite.db.authskin.xyz, url: 'https://satellite.db.authskin.xyz', cdn: scdn, cdn_header: x-cache-status, status: new, testing: true, since: '2026-10-28' } }
+                    data: { required: [privacy, terms], accepted: false, state: missing, version: 1, urls: { privacy: '/legal/privacy.html', terms: '/legal/terms.html' }, hint: 'Include ?consent=privacy,terms&consent_version=1 to acknowledge both documents.' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /v1/consent/verify-pow:
+    post:
+      operationId: postVerifyPow
+      summary: Redeem a solved proof-of-work challenge for a session cookie
+      description: |
+        Called by the browser after the Cap widget reports success. The service
+        verifies the token against the Cap instance and, on success, answers with
+        `cap_session` in `Set-Cookie`.
+
+        Deliberately **fail-open**: an unreachable or slow Cap instance yields a
+        pass plus a logged warning instead of locking every visitor out. A
+        third-party challenge service going down must degrade the protection, never
+        the site.
+      tags: [System]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, description: 'Token produced by the Cap widget.' }
+      responses:
+        '200':
+          description: 'Challenge solved; the session cookie is set when a session is in play.'
+          headers:
+            Set-Cookie: { description: '`cap_session` — proof-of-work session, 12 hours (`pow.session_ttl`).', schema: { type: string }, example: 'cap_session=…; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200; Secure' }
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  meta: { $ref: '#/components/schemas/Meta' }
+                  data:
+                    type: object
+                    properties:
+                      ok: { type: boolean }
+                      passed: { type: boolean }
+                      fail_open: { type: boolean, description: 'True when the challenge could not be checked and the request was allowed through.' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  # ---------------------------------------------------------------------------
+  # Operator surface
+  #
+  # Not listed in `/v1/meta` endpoints, and not part of the public contract: on a
+  # deployment with no `admin.token` configured, this route answers 404 (it does
+  # not exist) rather than 401, so a probe cannot learn that an admin door is
+  # there. It is documented here because a client that holds a token should not
+  # have to read the source to find the payload shape.
+  # ---------------------------------------------------------------------------
+  /v1/admin/reload:
+    post:
+      operationId: postAdminReload
+      summary: Hot reload — re-pull every source and overwrite the cached copy
+      description: |
+        Differs from the scheduled warmup in two ways that matter operationally:
+
+          * TTL is ignored, so a reload seconds after the last fetch still hits the
+            network instead of being a no-op;
+          * it covers all seven datasets (four TLE sets, satellites, transmitters,
+            AMSAT status), whereas `refresh --target=all` historically refreshed
+            only the four TLE sets.
+
+        The prepared snapshot is rebuilt from the NEW data rather than from the
+        cache that was just replaced.
+
+        Serialised behind a file lock: two overlapping reloads would double the
+        upstream request rate for an identical result, and CelesTrak already blocks
+        IPs it considers abusive.
+
+        Authentication: `X-Admin-Token`, or `Authorization: Bearer <token>`, or
+        `?token=`. The token is `admin.token` / `SATAPI_ADMIN_TOKEN` and is compared
+        with a constant-time check. **No token configured means 404.**
+      tags: [Admin]
+      security:
+        - adminToken: []
+      parameters:
+        - name: targets
+          in: query
+          required: false
+          description: 'Comma-separated dataset ids. Omitted or `all` means every dataset.'
+          schema:
+            type: string
+          example: 'weather,amsat'
+      responses:
+        '200':
+          description: 'Every dataset refreshed and written.'
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/XRequestId' }
+            Cache-Control: { description: 'Always `no-store, private` — a reload is a state change and a cached copy of its report would be actively misleading.', schema: { type: string }, example: 'no-store, private' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [meta, data]
+                properties:
+                  meta: { $ref: '#/components/schemas/Meta' }
+                  data:
+                    type: object
+                    required: [reload]
+                    properties:
+                      reload: { $ref: '#/components/schemas/ReloadReport' }
+        '400':
+          description: 'An unknown target was requested (`bad_request`); nothing is refreshed.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401':
+          description: 'Missing or wrong admin token (`unauthorized`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: 'No `admin.token` is configured on this deployment, so this route does not exist.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: 'Another reload is already running (`reload_in_progress`). The correct client behaviour is to retry, not to fail over.'
+          headers:
+            Retry-After: { $ref: '#/components/headers/RetryAfter' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: 'At least one dataset failed; the body reports `failed > 0` and every dataset''s `written` value.'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  meta: { $ref: '#/components/schemas/Meta' }
+                  data:
+                    type: object
+                    properties:
+                      reload: { $ref: '#/components/schemas/ReloadReport' }
+
+  # ---------------------------------------------------------------------------
   # Legacy (deprecated pre-v1 surface)
   # ---------------------------------------------------------------------------
   /tle:
@@ -892,11 +1434,27 @@ components:
       scheme: bearer
       bearerFormat: opaque
       description: |
-        Static administrator token for `POST /v1/maintenance`, read from the
-        `SATAPI_ADMIN_TOKEN` environment variable or the `admin.token`
-        configuration key. Send it as `Authorization: Bearer <token>`; a wrong or
-        missing token yields `401`, and when no token is configured the route is
-        disabled and answers `503`.
+        Static administrator token, read from the `SATAPI_ADMIN_TOKEN` environment
+        variable or the `admin.token` configuration key. Send it as
+        `Authorization: Bearer <token>`, or as `X-Admin-Token`, or (last resort)
+        as `?token=`.
+
+        Two different failure modes, deliberately distinct:
+          * wrong or missing token on a deployment that HAS one -> `401`
+          * no token configured at all -> `404`, i.e. the route does not exist.
+            Answering 401 there would advertise an admin surface on a deployment
+            that deliberately left it off.
+    adminToken:
+      type: apiKey
+      in: header
+      name: X-Admin-Token
+      description: |
+        The same shared secret as `adminBearer`, sent in `X-Admin-Token`. Compared
+        with a constant-time check, so a wrong token cannot be discovered byte by
+        byte from response timing.
+
+        `POST /v1/maintenance` uses `adminBearer`; `POST /v1/admin/reload` accepts
+        either form.
 
   # ---------------------------------------------------------------------------
   # Shared parameters
@@ -907,6 +1465,7 @@ components:
     GroupParam: { name: group, in: query, description: 'Which upstream group to merge; `all` merges every source and de-duplicates by NORAD id, keeping the newest epoch.', schema: { type: string, enum: [all, weather, amateur, amsat, satnogs], default: all }, example: all }
     SourceParam: { name: source, in: path, required: true, description: 'Single upstream document: `weather` (CelesTrak Weather), `amateur` (CelesTrak Amateur), `amsat` or `satnogs`.', schema: { type: string, enum: [weather, amateur, amsat, satnogs] }, example: amateur }
     FormatParam: { name: format, in: query, description: '`tle` (default) returns classical 20-column TLE text, three lines per satellite with a `#` comment header; `json` returns the envelope whose data is an array of TleRecord.', schema: { type: string, enum: [tle, json], default: tle }, example: tle }
+    JsonParam: { name: json, in: query, description: 'Explicit representation switch, and the one to prefer. `json=true` (also `1`, `yes`, `on`, or a bare `json`) renders the JSON envelope; `json=false` (also `0`, `no`, `off`) forces standard TLE text. Outranks both `format=` and the `Accept` header, so a wrapper sending `Accept: application/json` cannot silently turn this URL into JSON. Omit it and the TLE routes answer with standard 20-column TLE text -- which is why a plain browser tab shows TLE and JSON is one parameter away.', schema: { type: boolean }, example: true }
     NoradParam: { name: norad, in: query, description: 'Comma separated NORAD catalogue numbers to keep.', schema: { type: [string, "null"] }, example: '25544,43017' }
     LimitParam: { name: limit, in: query, description: 'Maximum number of satellites to return; `0` means all.', schema: { type: integer, minimum: 0, maximum: 20000, default: 0 }, example: 500 }
     MetaParam: { name: meta, in: query, description: 'Alias of `include_meta`; `false` removes the leading `#` comment block from the text output.', schema: { type: boolean, default: true }, example: true }
@@ -946,6 +1505,13 @@ components:
     # System
     UiParam: { name: ui, in: query, description: '`1` or `true` renders the HTML dashboard instead of the JSON health document; the payload equals `/v1/status`.', schema: { type: boolean, default: false }, example: true }
 
+    # AMSAT upstream v1 proxy: the documented parameter surface, and the whole of it
+    AmsatNameParam: { name: name, in: query, description: 'Exact satellite API name, as listed by `/v1/amsat/catalog`.', schema: { type: string }, example: AO-91 }
+    AmsatIncludeStatsParam: { name: include_stats, in: query, description: 'Include per-satellite report counts and the latest report timestamp.', schema: { type: boolean }, example: true }
+    AmsatHoursParam: { name: hours, in: query, description: 'Look-back window in hours. Values outside the range are clamped, not rejected.', schema: { type: integer, minimum: 1, maximum: 720, default: 72 }, example: 72 }
+    AmsatLimitParam: { name: limit, in: query, description: 'Maximum number of rows to return.', schema: { type: integer, minimum: 1, maximum: 500, default: 100 }, example: 50 }
+    AmsatReportStatusParam: { name: status, in: query, description: 'Exact report value. The accepted set is published by `/v1/amsat/statuses`; an unknown value is dropped rather than forwarded.', schema: { type: string, enum: [Heard, Telemetry Only, Not Heard, Crew Active] }, example: Heard }
+
   # ---------------------------------------------------------------------------
   # Shared headers
   # ---------------------------------------------------------------------------
@@ -954,12 +1520,19 @@ components:
     ETag: { description: 'Strong entity tag of the served document; send it back with `If-None-Match`.', schema: { type: string }, example: '"6f4a1c9e2b7d8f30"' }
     LastModified: { description: 'RFC 7231 HTTP-date of the last successful upstream refresh.', schema: { type: string }, example: 'Sat, 01 Jun 2024 12:00:00 GMT' }
     CacheControl: { description: 'Freshness policy applied by the service; `no-store` for live health probes.', schema: { type: string }, example: 'public, max-age=3600, stale-while-revalidate=600' }
-    XCacheStatus: { description: 'Cache disposition of this response.', schema: { type: string, enum: [HIT, MISS, STALE] }, example: HIT }
+    XCacheStatus: { description: 'Cache disposition of this response. IMPORTANT: a CDN in front of the origin overwrites this header with its OWN verdict. Measured on the SCDN host: `X-Cache-Status: MISS from L1:6518` alongside `X-Cache-Age: 5541` -- the edge said MISS while the origin said HIT. Read `X-Origin-Cache-Status` for the origin verdict, and `EO-Cache-Status` (EdgeOne) or a value ending in ` from L1:NNNN` (SCDN) for the edge verdict.', schema: { type: string }, example: HIT }
     XCacheAge: { description: 'Age of the served cached document, in seconds.', schema: { type: integer, minimum: 0 }, example: 212 }
     XCacheTTL: { description: 'Freshness window of the served cached document, in seconds.', schema: { type: integer, minimum: 0 }, example: 3600 }
     XCacheBackend: { description: 'Storage backend that served the cached document.', schema: { type: string, enum: [redis, file, memory, none] }, example: redis }
+    XOriginCacheStatus: { description: 'The ORIGIN''s cache disposition, under a name no CDN touches. Always present on a cacheable response and always equal to what this service decided, even when a CDN has rewritten X-Cache-Status.', schema: { type: string, enum: [HIT, MISS, STALE, EXPIRED] }, example: HIT }
+    XOriginCacheAge: { description: 'Age of the cached document according to the origin, in seconds.', schema: { type: integer, minimum: 0 }, example: 212 }
+    XOriginCacheTTL: { description: 'Freshness window of the cached document according to the origin, in seconds.', schema: { type: integer, minimum: 0 }, example: 3600 }
+    XOriginCacheBackend: { description: 'Storage backend that served the cached document, according to the origin.', schema: { type: string }, example: redis+file }
+    EoCacheStatus: { description: 'EdgeOne''s own cache verdict. EdgeOne does not reuse X-Cache-Status, so on that host this header and X-Cache-Status agree; on the SCDN host the edge verdict arrives in X-Cache-Status instead, told apart by its ` from L1:NNNN` suffix.', schema: { type: string, enum: [HIT, MISS, EXPIRED, BYPASS] }, example: MISS }
+    XConsentRequired: { description: 'Advertises the privacy/terms acknowledgement contract. Present only while the client has NOT acknowledged both documents, so a compliant client sees no extra header. Format: `privacy,terms;version=1;state=missing|stale|invalid`.', schema: { type: string }, example: 'privacy,terms;version=1;state=missing' }
+    XAdminToken: { description: 'Shared secret for the operator surface (`POST /v1/admin/reload`). Read from `admin.token`; when that is unset the route answers 404, i.e. it does not exist on that deployment.', schema: { type: string }, example: '<admin.token>' }
     XRequestId: { description: 'Unique id of this request, repeated in `meta.request_id` and in problem documents.', schema: { type: string }, example: 'req_43492d7eec89ee04' }
-    XServiceVersion: { description: 'Running service version.', schema: { type: string }, example: 3.1.2789-beta }
+    XServiceVersion: { description: 'Running service version.', schema: { type: string }, example: 3.3.0+ra }
     XHealth: { description: 'Aggregate health of the service: `ok`, `degraded` or `critical`. Sent on `/v1/health`, `/v1/health/ready` and `/v1/status`.', schema: { type: string, enum: [ok, degraded, critical] }, example: ok }
     RetryAfter: { description: 'Seconds to wait before the request may be retried.', schema: { type: integer, minimum: 0 }, example: 30 }
     XRateLimitLimit: { description: 'Request budget of the current window.', schema: { type: integer, minimum: 0 }, example: 600 }
@@ -969,6 +1542,7 @@ components:
     Sunset: { description: 'RFC 8594 removal date of the deprecated route, when one is scheduled.', schema: { type: string }, example: 'Fri, 01 Jan 2027 00:00:00 GMT' }
     Link: { description: 'RFC 8288 links: `next`, `prev` and `last` on paginated responses; `rel="successor-version"` on deprecated routes.', schema: { type: string }, example: '</v1/satellites?page=2&per_page=100>; rel="next", </v1/satellites?page=26&per_page=100>; rel="last"' }
     LinkSuccessorVersion: { description: 'Link to the `/v1` resource that replaces this deprecated route.', schema: { type: string }, example: '</v1/tle>; rel="successor-version"' }
+    XAmsatSource: { description: 'Which upstream AMSAT document this response relays (`catalog`, `reports`, `summary`, `statuses`, `health`, `satellites`, `sat-info`). Sent by the seven `/v1/amsat/*` proxy routes.', schema: { type: string, enum: [catalog, reports, summary, statuses, health, satellites, sat-info] }, example: catalog }
 
   # ---------------------------------------------------------------------------
   # Shared responses
@@ -1110,7 +1684,7 @@ components:
       required: [service, version, api_version, generated, request_id, elapsed_ms]
       properties:
         service: { type: string, description: Service name., example: AzureOpenAPI for Satellite }
-        version: { type: string, description: Service version., example: 3.1.2789-beta }
+        version: { type: string, description: Service version., example: 3.3.0+ra }
         api_version: { type: string, description: Public API version prefix., example: v1 }
         generated: { type: string, description: RFC 3339 UTC generation time., example: '2026-09-20T05:57:45Z' }
         request_id: { type: string, description: Unique id of this request., example: 'req_43492d7eec89ee04' }
@@ -1127,6 +1701,97 @@ components:
         hint: { type: string, description: 'Operator hint about the maintenance API; only set by `/v1/maintenance`.', example: 'Maintenance writes are disabled: set SATAPI_ADMIN_TOKEN (config admin.token) to enable them.' }
         applied_by: { type: string, description: 'Client address that applied a maintenance change; only set by the `POST /v1/maintenance` response.', example: '203.0.113.7' }
         license: { type: string, description: 'Attribution notice; only set by the merged TLE feed.', example: 'Upstream data: see /v1/meta#attribution' }
+        endpoint: { $ref: '#/components/schemas/Endpoint' }
+        consent: { $ref: '#/components/schemas/ConsentStatus' }
+
+    Endpoint:
+      type: object
+      description: |
+        Which public hostname answered this request, and which response header
+        carries the EDGE cache verdict for it.
+
+        Two hostnames serve this API behind two different CDNs, and one of them
+        (SCDN) reuses `X-Cache-Status` for its own verdict — the same name the
+        origin uses. `cdn_header` is how a client knows which header to read instead
+        of guessing from the hostname.
+      required: [id, host, url, cdn, cdn_header, status, testing]
+      properties:
+        id: { type: string, description: 'Registry id of the address.', example: scdn }
+        host: { type: string, description: Hostname that served this response., example: satellite.db.authskin.xyz }
+        url: { type: string, description: Base URL of that hostname., example: 'https://satellite.db.authskin.xyz' }
+        cdn: { type: string, enum: [edgeone, scdn, unknown], description: CDN in front of that hostname., example: scdn }
+        cdn_header: { type: string, description: 'Response header carrying the EDGE cache verdict for this response. Empty when the edge exposes none.', example: x-cache-status }
+        status: { type: string, enum: [stable, new, unknown], description: '`new` marks an address that is still being characterised; not decoration, it also drives the in-page notice.', example: new }
+        testing: { type: boolean, description: 'True on an address that is explicitly under test.', example: true }
+        since: { type: string, description: 'Date the address was added; present only on a non-default entry.', example: '2026-10-28' }
+
+    ConsentStatus:
+      type: object
+      description: 'The privacy/terms acknowledgement contract, and the verdict for the request that carried it.'
+      required: [required, accepted, state, version, urls]
+      properties:
+        required: { type: array, items: { type: string }, description: 'Document names that must be acknowledged.', example: [privacy, terms] }
+        accepted: { type: boolean, description: 'True only when every required document was provided at the current version.', example: false }
+        state: { type: string, enum: [ok, missing, invalid, stale], description: '`stale` means the documents changed since the client agreed; `invalid` means the provided value was rejected (too long or containing unsupported characters).', example: missing }
+        version: { type: integer, description: 'Current published version. Bumping it invalidates every previous acknowledgement.', example: 1 }
+        urls: { type: object, description: 'Where each document lives.', example: { privacy: '/legal/privacy.html', terms: '/legal/terms.html' } }
+        hint: { type: string, description: 'Ready-made instruction for the client.', example: 'Include ?consent=privacy,terms&consent_version=1 to acknowledge both documents.' }
+        missing: { type: array, items: { type: string }, description: 'Documents still missing.' }
+        provided: { type: array, items: { type: string }, description: 'Documents the client did provide.' }
+        client_version: { type: integer, description: 'Version the client said it agreed to, when it differs from `version`.' }
+        error: { type: string, description: 'Why the provided value was rejected; only with `state: invalid`.' }
+
+    ReloadReport:
+      type: object
+      description: 'Result of a hot reload. `written: MISS` is the field that proves the producer actually ran and overwrote the previous copy; `STALE`/`EXPIRED` means the fetch failed and the old copy survived, which must not be read as success.'
+      required: [ok, datasets]
+      properties:
+        ok: { type: boolean, description: 'True only when every dataset refreshed.' }
+        started_at: { type: string, description: 'RFC 3339 UTC start time.', example: '2026-10-28T11:53:18Z' }
+        finished_at: { type: string, description: 'RFC 3339 UTC finish time.' }
+        elapsed_ms: { type: integer, description: 'Wall-clock duration.', example: 75745 }
+        failed: { type: integer, description: 'Datasets that failed.', example: 0 }
+        time_limit_reached: { type: boolean, description: 'Set when `reload.time_limit` cut the run short. The truncation is reported, never hidden.' }
+        skipped: { type: array, items: { type: string }, description: 'Datasets not attempted because the time limit was reached.' }
+        merged_count: { type: integer, description: 'Records in the merged feed after preprocessing.', example: 1562 }
+        datasets:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              ok: { type: boolean }
+              count: { type: integer }
+              ms: { type: integer }
+              error: { type: string }
+              written: { type: string, enum: [MISS, HIT, STALE, EXPIRED], description: 'Cache disposition after the refresh.' }
+              stored_at: { type: integer }
+        prepared: { $ref: '#/components/schemas/PreprocessStats' }
+        snapshot:
+          type: object
+          properties:
+            key: { type: string, description: 'Snapshot cache key, derived from the source timestamps so a source refresh invalidates it by construction.', example: 'prepared:tle:9f1c2ab34de5' }
+            built_at: { type: integer }
+            cache: { $ref: '#/components/schemas/CacheInfo' }
+
+    PreprocessStats:
+      type: object
+      description: |
+        Counters for every cleaning rule that fired, published so "the feed
+        changed" can be attributed to a rule instead of to an upstream. A cleaning
+        pass that silently changed data would be indistinguishable from a source
+        that is lying.
+      properties:
+        input_records: { type: integer, description: 'Records entering the pipeline.' }
+        duplicates_merged: { type: integer, description: 'Same catalogue number seen from more than one upstream.' }
+        dropped_invalid: { type: integer, description: 'Dropped because the two lines are not a valid TLE pair, or the catalogue numbers disagree.' }
+        dropped_norad: { type: integer, description: 'Dropped because no catalogue number could be established.' }
+        name_normalised: { type: integer, description: 'Names with a 3LE prefix or redundant whitespace rewritten.' }
+        norad_completed: { type: integer, description: 'Missing catalogue numbers filled from the configured fallback map.' }
+        checksum_verified: { type: integer, description: 'Records whose checksum validated.' }
+        checksum_failed: { type: integer, description: 'Records whose checksum did not validate. Served anyway, flagged.' }
+        epoch_missing: { type: integer, description: 'Unparseable epoch.' }
+        orbit_incomplete: { type: integer, description: 'Records with one or more orbital elements missing.' }
+        capped: { type: integer, description: 'Records dropped by `preprocess.max_records`.' }
 
     CacheInfo:
       type: object
@@ -1199,7 +1864,37 @@ components:
         epoch_unix: { type: integer, description: Same instant as unix seconds., example: 1790510400 }
         source: { type: string, enum: [weather, amateur, amsat, satnogs], description: Upstream that contributed this element set., example: satnogs }
         tle: { type: array, minItems: 2, maxItems: 2, items: { type: string }, description: 'The two element lines, line 1 first.', example: ['1 25544U 98067A   26270.50000000  .00006292  00000-0  12172-3 0  9997', '2 25544  51.6310 211.2092 0004923 144.3133 215.8185 15.49128922585812'] }
-        checksum_ok: { type: boolean, description: Whether both element lines pass the modulo-10 TLE checksum., example: true }
+        checksum_ok: { type: boolean, description: 'Whether both element lines pass the modulo-10 TLE checksum. Verified but never rewritten: recomputing a failing digit would turn "this data is corrupt" into "this data is fine". A record that fails is still served, with the expected digit in `checksum_expected`.', example: true }
+        checksum_expected: { type: object, description: 'Present only on a record whose checksum does NOT validate. Carries the digit the line own bytes add up to, for comparison with the digit actually published.', properties: { line1: { type: integer, minimum: 0, maximum: 9 }, line2: { type: integer, minimum: 0, maximum: 9 } }, example: { line1: 3, line2: 1 } }
+        sources: { type: array, items: { type: string, enum: [weather, amateur, amsat, satnogs] }, description: 'Every upstream that carried this catalogue number, which makes the merge auditable instead of a silent winner-takes-all. Additive field: absent when the record did not go through the preprocessing pipeline.', example: [satnogs] }
+        orbit: { $ref: '#/components/schemas/OrbitElements' }
+
+    OrbitElements:
+      type: object
+      description: |
+        The orbital elements carried by the two lines, as numbers, produced by the
+        preprocessing pass.
+
+        This is the reason `orbit` exists at all: reading these values off the wire
+        format requires knowing that the eccentricity column omits its leading
+        "0." and that the bstar field uses an assumed decimal point (" 85846-4"
+        means 8.5846e-5). Both are easy to get wrong, so they are decoded once,
+        server-side.
+
+        Every property is optional and a field that did not parse is OMITTED rather
+        than zero-filled: a zero inclination is a real orbit type, so a fabricated 0
+        would be a lie the consumer cannot detect.
+      properties:
+        inclination_deg: { type: number, description: Orbital inclination in degrees., example: 51.631 }
+        raan_deg: { type: number, description: Right ascension of the ascending node, degrees., example: 211.2092 }
+        eccentricity: { type: number, description: 'Eccentricity including the leading "0." that the TLE column omits.', example: 0.0004923 }
+        argp_deg: { type: number, description: Argument of perigee, degrees., example: 144.3133 }
+        mean_anomaly_deg: { type: number, description: Mean anomaly, degrees., example: 215.8185 }
+        mean_motion: { type: number, description: Mean motion, revolutions per day., example: 15.49128922 }
+        rev_number: { type: integer, description: Revolution number at epoch., example: 58581 }
+        bstar: { type: number, description: 'B* drag term, decoded from the assumed-decimal form (e.g. " 85846-4" becomes 8.5846e-5).', example: 0.000085846 }
+        element_set: { type: integer, description: Element set number., example: 999 }
+        classification: { type: string, description: 'Security classification character, usually `U`.', example: U }
 
     TleEnvelope:
       allOf:
@@ -1359,7 +2054,7 @@ components:
       required: [name, version, api_version, description, homepage, docs, openapi, status_page, license, contact, build]
       properties:
         name: { type: string, example: AzureOpenAPI for Satellite }
-        version: { type: string, example: 3.1.2789-beta }
+        version: { type: string, example: 3.3.0+ra }
         api_version: { type: string, example: v1 }
         description: { type: string, example: 'Unified TLE and satellite metadata proxy (CelesTrak, AMSAT, SatNOGS).' }
         homepage: { type: string, example: 'https://satellite.api.authskin.xyz' }
@@ -1583,8 +2278,8 @@ components:
         overall: { type: string, enum: [ok, degraded, critical], description: 'Aggregate verdict; `critical` yields HTTP 503.', example: ok }
         timestamp: { type: string, description: 'Check time in UTC, formatted as "Y-m-d H:i:s" followed by " UTC".', example: '2026-09-20 05:57:50 UTC' }
         generated: { type: string, description: RFC 3339 UTC generation time., example: '2026-09-20T05:57:50Z' }
-        service: { type: string, description: Service name and version., example: AzureOpenAPI for Satellite v3.1.2789-beta }
-        version: { type: string, example: 3.1.2789-beta }
+        service: { type: string, description: Service name and version., example: AzureOpenAPI for Satellite v3.3.0+ra }
+        version: { type: string, example: 3.3.0+ra }
         api_version: { type: string, example: v1 }
         uptime_seconds: { type: number, minimum: 0, example: 864213 }
         checks: { $ref: '#/components/schemas/HealthChecks' }
@@ -1612,6 +2307,53 @@ components:
         redis: { $ref: '#/components/schemas/RedisCheck' }
         caches: { type: object, description: Freshness of every tracked cache document., additionalProperties: { type: string, enum: [fresh, stale, missing] } }
 
+    # --- AMSAT upstream v1 (proxied verbatim) --------------------------------
+    #
+    # These four describe AMSAT's OWN documents, not this service's envelope. The
+    # proxy does not reshape them, so a client that already speaks to
+    # status.amsat.org/api/v1 gets exactly what it expects; the field names and
+    # types are copied from AMSAT's published openapi.php (v1.0.0, 2026-11-03).
+    AmsatSatellite:
+      type: object
+      description: 'One satellite in the AMSAT catalog (upstream `catalog.php` / `satellites.php`).'
+      properties:
+        id: { type: integer, description: Upstream row id., example: 41 }
+        name: { type: string, description: 'Satellite API name, as used by every filter.', example: AO-91 }
+        display_name: { type: string, nullable: true, description: Human-readable name., example: 'AO-91 (Fox-1B)' }
+        website: { type: string, description: Page describing the satellite., example: 'https://www.amsat.org/ao-91/' }
+
+    # NOT `AmsatReport`: that name already belongs to this service's own status rows
+    # (see the /v1/amsat/status schema). Two mappings with one key is a YAML error that
+    # the PHP validator used to accept silently, while the browser's parser refuses the
+    # whole document -- see bin/check-openapi-strict.py and handoff §十四.
+    AmsatUpstreamReport:
+      type: object
+      description: 'One status report (upstream `reports.php` / `sat_info.php`).'
+      properties:
+        id: { type: integer, description: Upstream row id., example: 9812 }
+        name: { type: string, description: Satellite API name., example: AO-91 }
+        satellite_display_name: { type: string, nullable: true, description: Human-readable satellite name., example: 'AO-91 (Fox-1B)' }
+        reported_time: { type: string, format: date-time, description: When the observation was made (RFC 3339 UTC)., example: '2026-11-03T09:41:00Z' }
+        callsign: { type: string, description: Reporter callsign., example: N0CALL }
+        report: { type: string, description: 'One of the values `/v1/amsat/statuses` lists.', example: Heard }
+        grid_square: { type: string, nullable: true, description: Maidenhead grid square., example: EM48 }
+        period: { type: integer, description: Upstream reporting period identifier., example: 1 }
+
+    AmsatStatusValue:
+      type: object
+      description: 'One accepted report value (upstream `statuses.php`).'
+      properties:
+        value: { type: string, description: 'Value to send as `status=`.', example: Heard }
+        label: { type: string, description: Display label., example: 'Satellite active' }
+
+    AmsatUpstreamHealth:
+      type: object
+      description: 'AMSAT''s own health verdict (upstream `health.php`) — not this service''s status.'
+      properties:
+        status: { type: string, enum: [ok, degraded, error], description: Upstream verdict., example: ok }
+        version: { type: string, description: Upstream API version., example: 1.0.0 }
+        time: { type: string, format: date-time, description: When the upstream answered., example: '2026-11-03T13:05:59Z' }
+
   # ---------------------------------------------------------------------------
   # Reusable examples
   # ---------------------------------------------------------------------------
@@ -1620,7 +2362,7 @@ components:
     MergedTleText:
       summary: 'Merged TLE text (three lines per satellite, `#` header)'
       value: |
-        # AzureOpenAPI for Satellite v3.1.2789-beta
+        # AzureOpenAPI for Satellite v3.3.0+ra
         # Generated: 2026-09-20T05:57:44Z
         # Satellites: 3
         # Cache TTL: 10800s
@@ -1643,7 +2385,7 @@ components:
     SingleSourceTleText:
       summary: CelesTrak Amateur TLE text
       value: |
-        # AzureOpenAPI for Satellite v3.1.2789-beta - source: CelesTrak Amateur
+        # AzureOpenAPI for Satellite v3.3.0+ra - source: CelesTrak Amateur
         # Generated: 2026-09-20T05:57:46Z
         # Satellites: 3
         # Cache: HIT (ttl 10800s)
@@ -1664,7 +2406,7 @@ components:
       value:
         meta:
           service: AzureOpenAPI for Satellite
-          version: 3.1.2789-beta
+          version: 3.3.0+ra
           api_version: v1
           generated: '2026-09-20T05:57:45Z'
           request_id: 'req_43492d7eec89ee04'
@@ -1701,7 +2443,7 @@ components:
       value:
         meta:
           service: AzureOpenAPI for Satellite
-          version: 3.1.2789-beta
+          version: 3.3.0+ra
           api_version: v1
           generated: '2026-09-20T05:57:47Z'
           request_id: 'req_ab1c252abc294c3d'
@@ -1736,7 +2478,7 @@ components:
       value:
         meta:
           service: AzureOpenAPI for Satellite
-          version: 3.1.2789-beta
+          version: 3.3.0+ra
           api_version: v1
           generated: '2026-09-20T05:57:48Z'
           request_id: 'req_b2c39d50e904dffa'
@@ -1775,7 +2517,7 @@ components:
       value:
         meta:
           service: AzureOpenAPI for Satellite
-          version: 3.1.2789-beta
+          version: 3.3.0+ra
           api_version: v1
           generated: '2026-09-20T05:57:49Z'
           request_id: 'req_b8285e86a79a7ede'
@@ -1794,7 +2536,7 @@ components:
       value:
         meta:
           service: AzureOpenAPI for Satellite
-          version: 3.1.2789-beta
+          version: 3.3.0+ra
           api_version: v1
           generated: '2026-09-20T05:57:52Z'
           request_id: 'req_38fbd9951cc25301'
@@ -1803,7 +2545,7 @@ components:
         data:
           service:
             name: AzureOpenAPI for Satellite
-            version: 3.1.2789-beta
+            version: 3.3.0+ra
             api_version: v1
             description: 'Unified TLE and satellite metadata proxy (CelesTrak, AMSAT, SatNOGS).'
             homepage: 'https://satellite.api.authskin.xyz'
@@ -1851,8 +2593,8 @@ components:
         overall: ok
         timestamp: '2026-09-20 05:57:50 UTC'
         generated: '2026-09-20T05:57:50Z'
-        service: AzureOpenAPI for Satellite v3.1.2789-beta
-        version: 3.1.2789-beta
+        service: AzureOpenAPI for Satellite v3.3.0+ra
+        version: 3.3.0+ra
         api_version: v1
         uptime_seconds: 864213
         checks:
@@ -1881,8 +2623,8 @@ components:
         overall: degraded
         timestamp: '2026-09-20 05:57:50 UTC'
         generated: '2026-09-20T05:57:50Z'
-        service: AzureOpenAPI for Satellite v3.1.2789-beta
-        version: 3.1.2789-beta
+        service: AzureOpenAPI for Satellite v3.3.0+ra
+        version: 3.3.0+ra
         api_version: v1
         uptime_seconds: 0
         checks:
@@ -1945,7 +2687,7 @@ components:
         <html lang="en">
           <head><meta charset="utf-8"><title>AzureOpenAPI for Satellite - status</title></head>
           <body>
-            <h1>AzureOpenAPI for Satellite 3.1.2789-beta</h1>
+            <h1>AzureOpenAPI for Satellite 3.3.0+ra</h1>
             <p>status: <strong>ok</strong> | overall: ok | uptime: 10d 0h 3m</p>
             <table>
               <tr><th>cache</th><th>age</th><th>ttl</th><th>fresh</th></tr>
@@ -1960,7 +2702,7 @@ components:
       value:
         meta:
           service: AzureOpenAPI for Satellite
-          version: 3.1.2789-beta
+          version: 3.3.0+ra
           api_version: v1
           generated: '2026-09-20T05:57:53Z'
           request_id: 'req_fd315bae61ef60ba'
@@ -1991,7 +2733,7 @@ components:
       value:
         meta:
           service: AzureOpenAPI for Satellite
-          version: 3.1.2789-beta
+          version: 3.3.0+ra
           api_version: v1
           generated: '2026-09-20T05:57:53Z'
           request_id: 'req_fd315bae61ef60ba'

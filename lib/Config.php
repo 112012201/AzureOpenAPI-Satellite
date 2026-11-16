@@ -37,14 +37,267 @@ final class Config
             'service' => array(
                 'name'        => 'AzureOpenAPI for Satellite',
                 'slug'        => 'azureopenapi-for-satellite',
-                'version'     => '3.1.2789-beta',
+                'version'     => '3.3.0+ra',
                 'api_version' => 'v1',
                 'description' => 'Unified TLE and satellite metadata proxy (CelesTrak, AMSAT, SatNOGS).',
-                'homepage'    => 'https://satellite.api.authskin.xyz',
+                // The official site of the operator, not the API hostname. It is where
+                // the legal documents send a reader who wants the operator's own site.
+                // It is NOT the canonical base for these pages: canonical, og:url and
+                // the sitemap come from `seo.site` below. The two used to share this
+                // one value, which is how the landing page ended up telling search
+                // engines that its canonical copy lived on a different site.
+                'homepage'    => 'https://www.authskin.xyz',
                 'docs'        => '/docs.html',
                 'license'     => 'Data: public sources. API code: MIT.',
-                'contact'     => 'https://community.libre.space/',
+                'contact'     => 'https://www.authskin.xyz/',
+                // The address the privacy policy and the terms publish. Kept in one
+                // place so a change cannot leave one document pointing at an old box.
+                'contact_email' => '1422769173@qq.com',
                 'build'       => 'local',
+            ),
+
+            // ------------------------------------------------------------------
+            // Search-engine identity.
+            //
+            // `site` is the address these documents are canonically served from. It
+            // must be the host that answers HTTP itself, not a CDN alias: three
+            // hostnames serve this site (origin, EdgeOne, SCDN) and a canonical that
+            // named an edge would make every cache its own original.
+            //
+            // Left empty it resolves to the `origin` entry of the hostname registry,
+            // which is exactly that host. Setting it explicitly is for a move to a
+            // different domain, where changing one string here must be enough for the
+            // canonical, the Open Graph tags and the sitemap to follow.
+            // ------------------------------------------------------------------
+            'seo' => array(
+                'site'    => '',
+                // Profiles of the operator or the project elsewhere. Only a real one
+                // belongs here: an empty list is fine, an invented list is a claim.
+                'same_as' => array(),
+                // Search Console / Webmaster Tools verification tokens.
+                //
+                // These are not secrets: each one is published in the page's own
+                // <head> so the crawler can read it back, which is the entire proof.
+                // They live in configuration so verifying the site is a one-line
+                // change rather than a template edit, and so the DNS method and the
+                // HTML-file method remain alternatives rather than the only paths.
+                'google_verification' => '',
+                'bing_verification'   => '',
+                // Bing Webmaster Tools API credential. This one IS a secret, so it
+                // belongs in conf/bing.php (mode 0600, not in git) rather than here;
+                // the entries exist so a container can inject them instead.
+                'bing_api_key' => '',
+                // The verified property the API acts on. NOT seo.site: the verified
+                // property is the apex (https://authskin.xyz/), while the pages live
+                // on the satellite subdomain, and Bing keys sites by exact URL.
+                'bing_site'    => '',
+            ),
+
+            // ------------------------------------------------------------------
+            // Public hostname registry.
+            //
+            // More than one hostname serves this API, each behind a different
+            // CDN, and the service has to be able to say WHICH one answered and
+            // whether that answer came off an edge or from this process.
+            //
+            // `cdn` names the vendor, and `cdn_header` is the response header
+            // that vendor writes its own cache verdict into. They are not
+            // interchangeable:
+            //
+            //   EdgeOne  -> EO-Cache-Status     (its own namespace, no collision)
+            //   SCDN     -> X-Cache-Status      (COLLIDES with the origin header
+            //                                    this app emits in
+            //                                    Api\Endpoints\Base::cacheHeaders)
+            //
+            // That collision is why the origin's verdict also travels as
+            // X-Origin-Cache-Status: `X-Cache-Status` cannot be trusted as an
+            // origin signal once a CDN is in front, because the edge overwrites
+            // it on the way out. Measured 2026-10-28 on satellite.db:
+            //   X-Cache-Status: MISS from L1:6518   (SCDN)
+            //   X-Cache-Age: 5541                   (origin, 5541s)
+            // i.e. four headers describing one cache and two of them disagreeing.
+            //
+            // `status` is published so a client can tell a battle-tested address
+            // from one that is still being shaken out. 'new' is not decoration:
+            // it also drives the in-page notice and the meta.endpoint block.
+            //
+            // THE THREE ADDRESSES AND THEIR HONEST TRADE-OFFS
+            //
+            // Each route fails in its own way, and a visitor cannot be expected to
+            // know which. So every entry carries `notice` (an i18n key, so the text
+            // is written per locale instead of machine-translated) plus a short
+            // `badge`, and the page renders them as a strip at the top. The three
+            // do not share one sentence because they are not the same risk:
+            //
+            //   origin    direct to the main proxy, with no edge in front of it. That
+            //             is its VALUE, not its fallback role: nothing is cached by a
+            //             third party, so what a client reads is what this process
+            //             computed this second -- the address for anyone who needs
+            //             current data. The cost is that a busy moment is felt
+            //             directly, because no edge absorbs the spike.
+            //   primary   EdgeOne, a normal acceleration path; nodes replicate, so a
+            //             stale copy can be served after a refresh
+            //   scdn      the newer path (2026-10-28); out of testing since 2026-11-03
+            //             and now the regularly-accelerated address
+            //
+            // `notice_level` is 'warning' when the visitor can lose service and
+            // 'info' when the risk is only data age -- colouring both the same would
+            // teach people to ignore the strip.
+            //
+            // `announcements` decides whether the announcement board (the dialog
+            // built from content/announcements/*.md) is rendered on a page for this
+            // address. It is true everywhere: the operator's "not on the API address"
+            // meant API RESPONSES, which is structural -- the board only exists in
+            // HTML documents, and /v1/* answers JSON. The flag stays as a hook for a
+            // future hostname that should not carry the board at all.
+            // ------------------------------------------------------------------
+            'endpoints' => array(
+                // Moved from `primary` to `scdn` on 2026-11-03, with the public
+                // announcement: the EdgeOne address enters a long maintenance window
+                // on 2026-11-06, so answering an unrecognised Host with it would point
+                // clients at an address that is about to be down. `primary` stays in
+                // the registry -- it is not retired, and /v1/meta must still describe
+                // it correctly while it is up.
+                'default' => 'scdn',
+
+                'registry' => array(
+                    'primary' => array(
+                        'host'          => 'satellite.api.authskin.xyz',
+                        'url'           => 'https://satellite.api.authskin.xyz',
+                        'cdn'           => 'edgeone',
+                        'cdn_header'    => 'eo-cache-status',
+                        'status'        => 'stable',
+                        'testing'       => false,
+                        'badge'         => 'endpoint.badge.edgeone',
+                        'notice'        => 'endpoint.notice.edgeone',
+                        'notice_level'  => 'info',
+                        'announcements' => true,
+                    ),
+
+                    // Added 2026-10-28. CNAME to an SCDN ("安全加速") endpoint; the
+                    // origin is the same application, so every route, header and
+                    // limit is identical by construction -- only the edge differs.
+                    //
+                    // 2026-11-03: testing finished, so `status`/`testing` are no
+                    // longer 'new'/true. That flag is published in /v1/meta and says
+                    // "this address is under test"; leaving it on would now be a lie,
+                    // and the badge (which is what a visitor reads) changes with it.
+                    'scdn' => array(
+                        'host'          => 'satellite.db.authskin.xyz',
+                        'url'           => 'https://satellite.db.authskin.xyz',
+                        'cdn'           => 'scdn',
+                        'cdn_header'    => 'x-cache-status',
+                        'status'        => 'stable',
+                        'testing'       => false,
+                        // Shown in /v1/meta and on the landing page. Kept short: it
+                        // is a label, not documentation.
+                        'since'         => '2026-10-28',
+                        'stable_since'  => '2026-11-03',
+                        'badge'         => 'endpoint.badge.regular',
+                        'notice'        => 'endpoint.notice.scdn',
+                        'notice_level'  => 'info',
+                        'announcements' => true,
+                    ),
+
+                    // The third name in the vhost's server_name list. It used to fall
+                    // through to `primary`, so a visitor on the un-mediated address was
+                    // told they were on EdgeOne. It has no edge at all: `cdn` is 'none'
+                    // and `cdn_header` is empty, and the template uses exactly that to
+                    // decide whether there is an edge verdict worth displaying.
+                    'origin' => array(
+                        'host'          => 'satellite.authskin.xyz',
+                        'url'           => 'https://satellite.authskin.xyz',
+                        'cdn'           => 'none',
+                        'cdn_header'    => '',
+                        'status'        => 'stable',
+                        'testing'       => false,
+                        'badge'         => 'endpoint.badge.direct',
+                        'notice'        => 'endpoint.notice.direct',
+                        'notice_level'  => 'warning',
+                        'announcements' => true,
+                    ),
+                ),
+            ),
+
+            // ------------------------------------------------------------------
+            // Information preprocessing.
+            //
+            // Upstream feeds are not merely concatenated: they are cleaned and
+            // completed before the request path ever sees them, and the cleaned
+            // result is stored as a snapshot so a request does not redo the work.
+            //
+            // Every repair is COUNTED rather than quietly applied, because a
+            // cleaning pass that silently changes data is indistinguishable from
+            // a source that is lying. The counters are published in
+            // /v1/status and in the reload report.
+            //
+            // The rules themselves live in lib/Data/Prepared.php, one method per
+            // rule, so they are readable without reading the pipeline.
+            // ------------------------------------------------------------------
+            'preprocess' => array(
+                'enabled' => true,
+                // Cache key and lifetime of the cleaned snapshot. The snapshot is
+                // derived data, so its TTL only needs to outlive the slowest
+                // upstream source; it is invalidated by a reload regardless.
+                'key' => 'prepared:tle',
+                'ttl' => 43200,
+
+                // Verify the modulo-10 checksum on line 1 and line 2 and record the
+                // TRUE verdict.
+                //
+                // Deliberately does NOT rewrite a failing line to make it pass.
+                // Recomputing the trailing digit turns "this data is corrupt" into
+                // "this data is fine", which is the one thing a preprocessing step
+                // must never do: the checksum exists to detect corruption, not to be
+                // regenerated over it. A record that fails is still served (it is
+                // upstream data, not ours to invent), with checksum_ok=false and the
+                // expected digit published, which is what lets a client decide.
+                'verify_checksum' => true,
+
+                // Fill a missing NORAD catalogue number from the satellite name,
+                // using the configured norad_fallback map. Exact (normalised) match
+                // only: a fuzzy match would map "AO-7" onto "AO-70" the moment the
+                // catalogue grows that name, and a wrong catalogue number is worse
+                // than a missing one.
+                'complete_norad' => true,
+
+                // Reject a line 2 catalogue number that disagrees with line 1.
+                // A mismatched pair is two different satellites welded together.
+                'reject_norad_mismatch' => true,
+
+                // Strip the decorations upstreams add to names ("0 ISS (ZARYA)"),
+                // collapse whitespace, and upper-case nothing (names are proper
+                // nouns; "Amsat" must not become "AMSAT").
+                'normalise_names' => true,
+
+                // Hard cap on records kept. Guards the memory ceiling: the four TLE
+                // sets merge to roughly 12k records today, and an upstream returning
+                // a pathological payload must not OOM the worker.
+                'max_records' => 60000,
+            ),
+
+            // ------------------------------------------------------------------
+            // Hot reload: re-pull every source and OVERWRITE the cached copy.
+            //
+            // Distinct from the scheduled warmup in two ways that matter:
+            //   - it ignores TTL, so a reload 30 seconds after the last fetch still
+            //     hits the network instead of being a no-op;
+            //   - it covers every dataset, not just the four TLE sets.
+            //
+            // Reachable from the CLI (`php index.php reload`) and over HTTP
+            // (POST /v1/admin/reload), both gated below.
+            // ------------------------------------------------------------------
+            'reload' => array(
+                'enabled' => true,
+                // Wall-clock ceiling for one full reload. The upstream timeout is
+                // 20s per source and there are seven, so a generous ceiling still
+                // fails fast when an upstream black-holes the connection.
+                'time_limit' => 180,
+                // A reload rewrites seven cache keys and the prepared snapshot.
+                // Serialised on purpose: two overlapping reloads would double the
+                // upstream load for an identical result, which is how a service
+                // gets blocked by its own upstream.
+                'lock_timeout_ms' => 5000,
             ),
 
             'cache' => array(
@@ -62,7 +315,7 @@ final class Config
             ),
 
             'http' => array(
-                'user_agent'  => 'AzureOpenAPI-for-Satellite/3.1.2789-beta (+https://satellite.api.authskin.xyz)',
+                'user_agent'  => 'AzureOpenAPI-for-Satellite/3.3.0+ra (+https://satellite.api.authskin.xyz)',
                 'verify_tls'  => true,
                 'ca_bundle'   => '',
                 'retries'     => 2,
@@ -90,7 +343,14 @@ final class Config
                 'allow_origin'   => '*',
                 'allow_methods'  => 'GET, HEAD, OPTIONS',
                 'allow_headers'  => 'Content-Type, Accept, If-None-Match, If-Modified-Since, X-Requested-With, Authorization',
-                'expose_headers' => 'ETag, X-Request-Id, X-Cache-Status, X-Cache-Age, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After, Deprecation, Sunset, Link',
+                // Every header a browser script is expected to read must be listed
+                // here, because a cross-origin response hides all but the CORS
+                // safelisted ones. EO-Cache-Status is on the list for a concrete
+                // reason: the landing page reports which edge served the API call,
+                // and without it fetch() cannot see the header at all and silently
+                // falls back to the origin verdict -- which is exactly the
+                // "cache mode shows the wrong thing" bug this replaces.
+                'expose_headers' => 'ETag, Age, X-Request-Id, X-Cache-Status, X-Cache-Age, X-Cache-TTL, X-Cache-Backend, X-Origin-Cache-Status, X-Origin-Cache-Age, X-Origin-Cache-TTL, X-Origin-Cache-Backend, EO-Cache-Status, X-CDN, X-Edge-Cache-Status, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After, Deprecation, Sunset, Link',
                 'max_age'        => 86400,
             ),
 
@@ -143,6 +403,57 @@ final class Config
                 'redis_retention' => 172800,
             ),
 
+            // ------------------------------------------------------------------
+            // AMSAT Satellite Status API (v1) proxy.
+            //
+            // AMSAT's own documented JSON endpoints, relayed byte for byte by
+            // Api\Endpoints\AmsatApi. `ttl` is not a performance knob: AMSAT asks
+            // clients not to poll more often than every 5 minutes, so 300 is the floor
+            // that keeps this service inside their guidelines however many of our own
+            // clients ask for the same document.
+            // ------------------------------------------------------------------
+            'amsat_api' => array(
+                'base'    => 'https://status.amsat.org/api/v1/',
+                'ttl'     => 300,
+                'timeout' => 8,
+            ),
+
+            // ------------------------------------------------------------------
+            // Jurisdiction: which version of the legal documents a visitor gets.
+            //
+            // `ranges` is the compiled APNIC table (bin/build-cn-ranges.php). When it
+            // is missing every request resolves to the international documents, which
+            // is the safe direction: the mainland version carries local obligations and
+            // must not be shown to someone outside that jurisdiction by accident.
+            // ------------------------------------------------------------------
+            'region' => array(
+                // Mainland allocations (CC=CN in the APNIC registry). Hong Kong,
+                // Macao and Taiwan are separate allocations and are therefore NOT
+                // in this file -- which is what makes "in the CN table" mean
+                // exactly "mainland", the exclusion the policy requires.
+                'ranges' => 'data/cn-ranges.php',
+                // Hong Kong + Macao + Taiwan allocations. They read the
+                // international documents, but in Traditional Chinese: the
+                // LANGUAGE follows the address, the JURISDICTION does not.
+                'hmt_ranges' => 'data/hmt-ranges.php',
+            ),
+
+            // ------------------------------------------------------------------
+            // Seasonal skin.
+            //
+            // `default` is the site as designed. `newyear` swaps in the red-and-gold
+            // theme (assets/newyear.css + the fireworks canvas); nothing about the
+            // markup, the routes or the text changes, and a visitor can leave the
+            // skin for themselves with the badge it shows.
+            //
+            // ?season=newyear previews it without touching configuration, and
+            // ?season=default turns it off for one visitor. A skin chosen that way
+            // makes the response no-store, because it is then per-visitor.
+            // ------------------------------------------------------------------
+            'theme' => array(
+                'season' => 'default',
+            ),
+
             'admin' => array(
                 // Empty token => maintenance writes are disabled (read-only mode).
                 'token' => '',
@@ -166,6 +477,33 @@ final class Config
                 'href_text'  => '',
                 'level'      => 'info',   // info | warning
                 'expires_at' => '',       // '' = never; otherwise ISO-8601 UTC
+            ),
+
+            // ------------------------------------------------------------------
+            // The announcement board (the dialog, not the bar above).
+            //
+            // Source of truth is one Markdown file per announcement in
+            // `content/announcements/`, front matter carrying title/date/author/
+            // level/refusable/expires. `php index.php announcements` validates them
+            // and rewrites `compiled` in one atomic step; the request path only ever
+            // reads the compiled artifact, never the Markdown.
+            //
+            // `max_shown` caps how many dialogs are embedded in a page. Every live
+            // announcement is still in the artifact -- the cap is about page weight,
+            // not about policy. Ordering is by severity and then by date, so the cap
+            // only ever drops the least urgent ones.
+            //
+            // `cookie_days` is how long an acknowledgement is remembered. It is
+            // deliberately shorter than the cookie lifetime for consent: a notice is
+            // news, and a visitor who read one six months ago has forgotten it.
+            // ------------------------------------------------------------------
+            'announcements' => array(
+                'enabled'        => true,
+                'source'         => 'content/announcements',
+                'compiled'       => 'data/announcements.php',
+                'max_shown'      => 3,
+                'cookie_days'    => 180,
+                'default_author' => 'Announcement system',
             ),
 
             // ------------------------------------------------------------------
@@ -196,6 +534,11 @@ final class Config
                     '/v1/health', '/v1/health/live', '/v1/health/ready',
                     '/v1/status', '/v1/meta', '/v1/consent/status',
                     '/v1/consent/verify-pow',
+                    // An operator tool authenticated by admin.token. Demanding a
+                    // consent parameter as well would only make an outage harder
+                    // to fix: the person reloading the cache is the one who
+                    // already accepted the terms by holding the token.
+                    '/v1/admin/reload',
                     '/docs.html', '/openapi.yaml',
                     '/legal/privacy.html', '/legal/terms.html', '/legal/index.html',
                 ),
@@ -231,6 +574,7 @@ final class Config
                     '/v1/health', '/v1/health/live', '/v1/health/ready',
                     '/v1/status', '/v1/meta', '/v1/consent/status',
                     '/v1/consent/verify-pow',
+                    '/v1/admin/reload',
                     '/legal/privacy.html', '/legal/terms.html', '/legal/index.html',
                 ),
             ),
@@ -251,6 +595,8 @@ final class Config
                 'essential' => array(
                     'cookie_consent'         => 'Records the choice you made in the cookie dialog, so you are not asked again on every page.',
                     'announcement_dismissed' => 'Records the identifier of the service notice you closed, so it stays closed.',
+                    'announcement_read'      => 'Records the identifiers of the announcements you acknowledged, so they are not shown again.',
+                    'announcement_declined'  => 'Records the announcement you refused. While it is live the page content stays hidden, and the choice is cleared when you agree or reload to be asked again.',
                     'cap_session'            => 'Holds the proof-of-work session for this browser. Set only after a challenge is solved, and expires after 12 hours.',
                 ),
                 'preferences' => array(
@@ -385,7 +731,16 @@ final class Config
         $map = array(
             'SATAPI_SERVICE_VERSION'      => 'service.version',
             'SATAPI_SERVICE_HOMEPAGE'     => 'service.homepage',
+            // The canonical host for canonical/og:url/sitemap. Separate from
+            // service.homepage on purpose: one is where the operator lives, the
+            // other is where THIS site answers.
+            'SATAPI_SEO_SITE'             => 'seo.site',
+            'SATAPI_GOOGLE_VERIFICATION'  => 'seo.google_verification',
+            'SATAPI_BING_VERIFICATION'    => 'seo.bing_verification',
+            'SATAPI_BING_API_KEY'         => 'seo.bing_api_key',
+            'SATAPI_BING_SITE'            => 'seo.bing_site',
             'SATAPI_SERVICE_BUILD'        => 'service.build',
+            'SATAPI_THEME_SEASON'         => 'theme.season',
             'SATAPI_REDIS_ENABLED'        => 'cache.redis.enabled',
             'SATAPI_REDIS_HOST'           => 'cache.redis.host',
             'SATAPI_REDIS_PORT'           => 'cache.redis.port',
@@ -441,6 +796,10 @@ final class Config
             'SATAPI_SPACETRACK_CHUNK'     => 'sources.spacetrack.chunk_size',
             'SATAPI_CONSENT_REQUIRED'     => 'consent.required',
             'SATAPI_CONSENT_VERSION'      => 'consent.version',
+            'SATAPI_PREPROCESS_ENABLED'   => 'preprocess.enabled',
+            'SATAPI_PREPROCESS_TTL'       => 'preprocess.ttl',
+            'SATAPI_RELOAD_ENABLED'       => 'reload.enabled',
+            'SATAPI_RELOAD_TIME_LIMIT'    => 'reload.time_limit',
             'SATAPI_POW_ENABLED'          => 'pow.enabled',
             'SATAPI_POW_ENDPOINT'         => 'pow.endpoint',
             'SATAPI_POW_SITE_KEY'         => 'pow.site_key',
@@ -597,6 +956,70 @@ final class Config
         'satnogs_transmitters',
         'amsat_status',
     );
+
+    /**
+     * Every configured public hostname, keyed by short id.
+     *
+     * @return array<string,array<string,mixed>>
+     */
+    public static function endpoints()
+    {
+        $registry = self::get('endpoints.registry', array());
+
+        return is_array($registry) ? $registry : array();
+    }
+
+    /**
+     * One entry from the hostname registry, or null.
+     *
+     * @return array<string,mixed>|null
+     */
+    public static function endpoint($id)
+    {
+        $registry = self::endpoints();
+
+        return isset($registry[$id]) && is_array($registry[$id]) ? $registry[$id] : null;
+    }
+
+    public static function defaultEndpointId()
+    {
+        $id = (string) self::get('endpoints.default', 'primary');
+
+        return self::endpoint($id) !== null ? $id : 'primary';
+    }
+
+    /**
+     * Resolve a request's Host header to a registry id.
+     *
+     * Deliberately tolerant: a Host can arrive with a port, in mixed case, or
+     * with a trailing dot (FQDN form), and an unknown host -- localhost, a
+     * staging name, an IP -- must map to the default entry rather than to
+     * nothing. Returning null for "unknown" would make every caller handle a
+     * second failure mode for no benefit: the fallback is the primary address,
+     * which is what an unrecognised host is almost certain to be.
+     *
+     * @param string $host
+     * @return string registry id
+     */
+    public static function endpointIdForHost($host)
+    {
+        $host = strtolower(trim((string) $host));
+        // Strip the port (including IPv6 bracket form) and a trailing root dot.
+        $host = preg_replace('/:\d+$/', '', $host);
+        $host = trim((string) $host, '[]');
+        $host = rtrim($host, '.');
+
+        if ($host !== '') {
+            foreach (self::endpoints() as $id => $entry) {
+                $known = strtolower((string) (isset($entry['host']) ? $entry['host'] : ''));
+                if ($known !== '' && $known === $host) {
+                    return (string) $id;
+                }
+            }
+        }
+
+        return self::defaultEndpointId();
+    }
 
     /**
      * Only the configured data sources, never credential or policy blocks.

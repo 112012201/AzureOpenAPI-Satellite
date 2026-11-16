@@ -1,0 +1,241 @@
+/* ==========================================================================
+   film.css — the first-screen video band on the landing page.
+
+   The shape comes from whitehouse.gov: the header stays where it is, one
+   full-bleed clip takes the rest of the first screen, and the page proper starts
+   below it. Nothing here is fixed or overlaid -- the band is ordinary in-flow
+   content, so the hero, the tables and the footer are simply further down. The
+   only thing that makes it feel like a hero is that it is exactly as tall as the
+   screen it is the first thing on.
+
+   FOUR PARTS
+     .film           the band: full width, one screen tall, clipped
+     .film__video    the clip, object-fit: cover, so it fills without bars
+     .film__veil     a scrim: dark at the top for the header, the page's own
+                     background at the bottom so the band melts into the page
+     .film__lead     one line of copy, bottom left
+     .film__scroll   the way down, bottom centre
+
+   NOTHING HERE IS PALETTE-SPECIFIC. The veil's last stop is var(--bg), so a red
+   New Year melts into a red page and the plain site melts into its own. That is
+   the one colour decision this file makes, and it makes it by reference.
+
+   Height: 100svh minus the header. The header is 57px (56 min-height + 1px
+   border) on a desktop; at 720px and below app.css wraps the nav onto a second
+   row, so it is ~96px there. The band is allowed to come up ~2px short of the
+   fold; a sliver of the next section is a better failure than a scroll hint
+   pushed below the fold.
+   ========================================================================== */
+
+.film {
+  /* How much of the first screen is already taken by chrome above the band. film.js
+     overwrites this with the MEASURED offset (the announcement bar and the endpoint
+     notice are part of "the first screen" too); the numbers here are only what a
+     script-less visitor gets. */
+  --film-top: 58px;
+  position: relative;
+  z-index: 1;
+  height: calc(100vh - var(--film-top));
+  height: calc(100svh - var(--film-top));
+  min-height: 360px;
+  max-height: 1040px;
+  overflow: hidden;
+  background: #05121a;
+  /* A stacking context of its own, so the veil and the lead stay inside the band
+     and can never climb over the sticky header. */
+  isolation: isolate;
+}
+
+.film__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  /* The poster is painted by the element itself until the first frame arrives, so
+     there is nothing to fade: the band is never empty, and a visitor with the video
+     blocked sees a still of the same shot. */
+  background: #05121a;
+}
+
+.film__veil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* Top: enough to hold the sticky header's shadow off the picture.
+     Bottom: the page's OWN background, so the band has no seam with the page. */
+  background: linear-gradient(
+    180deg,
+    rgba(2, 8, 12, 0.34) 0%,
+    rgba(2, 8, 12, 0.06) 22%,
+    rgba(2, 8, 12, 0) 46%,
+    color-mix(in srgb, var(--bg, #05121a) 55%, transparent) 84%,
+    var(--bg, #05121a) 100%
+  );
+}
+
+.film__inner {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 0 clamp(18px, 5vw, 72px) clamp(64px, 9vh, 104px);
+  pointer-events: none;
+}
+
+/* The line and its label sit on one baseline: the slogan is the sentence, the label is
+   a footnote to it ("English-US" under a sentence written in English). flex-wrap lets the
+   label drop under the slogan on a narrow screen instead of shrinking both. */
+.film__lead {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.05em 0.75em;
+  max-width: 28ch;
+  font-family: var(--metro-font, 'Segoe UI', system-ui, -apple-system, 'Microsoft YaHei', sans-serif);
+}
+
+.film__slogan {
+  font-size: clamp(1.5rem, 4.4vw, 3.2rem);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: #fff;
+  text-shadow: 0 2px 28px rgba(0, 0, 0, 0.6), 0 1px 2px rgba(0, 0, 0, 0.5);
+  text-wrap: balance;
+  /* Inline-block so the caret trails the LAST glyph, not the end of the line box --
+     which matters for the right-to-left phrases. */
+  display: inline-block;
+  min-height: 1.1em;
+  unicode-bidi: plaintext;
+}
+
+/* The caret. It is the typewriter's cursor, so it only blinks while something is being
+   typed; a paused band leaves it dim and still. */
+.film__slogan::after {
+  content: '';
+  display: inline-block;
+  width: 0.055em;
+  height: 0.86em;
+  margin-inline-start: 0.08em;
+  transform: translateY(0.06em);
+  background: currentColor;
+  opacity: 0.85;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .film__slogan::after { animation: film-caret 1.05s steps(1) infinite; }
+}
+.film[data-film-state='paused'] .film__slogan::after { animation: none; opacity: 0.3; }
+@keyframes film-caret {
+  0%, 49% { opacity: 0.85; }
+  50%, 100% { opacity: 0.12; }
+}
+
+/* The language name. Small, spaced, quiet: it is a caption for the sentence above it. */
+.film__lang {
+  font-size: clamp(0.62rem, 1.25vw, 0.8rem);
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.66);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.75);
+  white-space: nowrap;
+  unicode-bidi: plaintext;
+}
+
+/* ---------- the pause button -------------------------------------------- */
+/* Top-right, inside the band. It belongs to this picture, so it scrolls away with
+   it instead of joining the fixed corner controls the themes put bottom-left and
+   bottom-right. aria-pressed carries the state: false = playing, true = paused. */
+.film__toggle {
+  position: absolute;
+  top: clamp(12px, 2vh, 20px);
+  right: clamp(12px, 3vw, 28px);
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(4, 12, 18, 0.34);
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.film__toggle:hover,
+.film__toggle:focus-visible {
+  background: rgba(4, 12, 18, 0.6);
+  border-color: rgba(255, 255, 255, 0.5);
+  color: #fff;
+}
+.film__toggle svg { width: 15px; height: 15px; }
+/* One icon at a time, chosen by the state the button is in. */
+.film__toggle [data-film-icon='play'] { display: none; }
+.film__toggle[aria-pressed='true'] [data-film-icon='play'] { display: block; }
+.film__toggle[aria-pressed='true'] [data-film-icon='pause'] { display: none; }
+
+/* ---------- the way down ------------------------------------------------ */
+.film__scroll {
+  position: absolute;
+  left: 50%;
+  bottom: clamp(14px, 2.4vh, 26px);
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font: 500 11px/1 'Segoe UI', system-ui, -apple-system, 'Microsoft YaHei', sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(4, 12, 18, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.film__scroll:hover,
+.film__scroll:focus-visible {
+  color: #fff;
+  background: rgba(4, 12, 18, 0.56);
+  border-color: rgba(255, 255, 255, 0.42);
+}
+.film__scroll svg { width: 13px; height: 13px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .film__scroll svg { animation: film-bob 2.6s ease-in-out infinite; }
+}
+@keyframes film-bob {
+  0%, 100% { transform: translateY(-2px); }
+  50% { transform: translateY(3px); }
+}
+
+/* ---------- small screens ----------------------------------------------- */
+@media (max-width: 720px) {
+  /* app.css wraps the nav onto its own row at this width; the band gives that
+     row its height back instead of pushing its own bottom edge off screen. */
+  .film { --film-top: 96px; min-height: 300px; }
+  /* The theme's own controls (music bottom-left, badge bottom-right) are fixed to the
+     bottom corners on a phone and about 40px tall. The copy and the hint have to clear
+     them: measured on a 390px viewport, the lead and the badge were overlapping. */
+  .film__inner { padding-bottom: 96px; }
+  .film__scroll { bottom: 58px; }
+  .film__lead { max-width: 20ch; gap: 0.1em 0.5em; }
+}
+
+/* ---------- less motion, no picture -------------------------------------- */
+/* The clip is stopped by film.js; a paused video still shows its frame, so this
+   rule only removes the bob. A visitor who asked for less motion keeps the still
+   and loses the movement, which is the point of asking. */
+@media (prefers-reduced-motion: reduce) {
+  .film__scroll svg { animation: none; }
+}
+
+/* ---------- print -------------------------------------------------------- */
+@media print {
+  .film { display: none !important; }
+}

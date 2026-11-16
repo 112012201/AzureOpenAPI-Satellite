@@ -55,7 +55,7 @@ curl_setopt_array($ch, array(
     CURLOPT_COOKIEFILE => $jar,
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_TIMEOUT => 60,
-    CURLOPT_HTTPHEADER => array('User-Agent: AzureOpenAPI-for-Satellite/3.1.2789-beta (+https://satellite.api.authskin.xyz)'),
+    CURLOPT_HTTPHEADER => array('User-Agent: AzureOpenAPI-for-Satellite/3.3.0+ra (+https://satellite.api.authskin.xyz)'),
 ));
 $q = curl_exec($ch);
 $qc = curl_getinfo($ch, CURLINFO_HTTP_CODE);

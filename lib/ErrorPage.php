@@ -7,6 +7,7 @@ use SatApi\Http\Response;
 use SatApi\Support\Announcement;
 use SatApi\Support\CapBootstrap;
 use SatApi\Support\I18n;
+use SatApi\Support\LocalePicker;
 
 /**
  * The error page, reached through the front controller at `/error`.
@@ -62,7 +63,8 @@ final class ErrorPage
          */
         $replyStatus = 200;
         $locale = I18n::resolve($request);
-        $code = $locale['code'];
+        $code = (string) $locale['code'];
+        $tag = isset($locale['tag']) ? (string) $locale['tag'] : $code;
         $t = static function ($key, $fallback = '') use ($code) {
             return I18n::translate($code, $key, $fallback);
         };
@@ -80,22 +82,24 @@ final class ErrorPage
         // A short, useful index instead of a bare apology: on an API service the most
         // likely reason someone is here is a mistyped path.
         $links = array(
-            array('/v1/tle', 'GET /v1/tle', 'Merged TLE feed, text or JSON'),
-            array('/v1/satellites', 'GET /v1/satellites', 'SatNOGS satellite catalogue'),
-            array('/v1/transmitters', 'GET /v1/transmitters', 'SatNOGS transmitter catalogue'),
-            array('/v1/amsat/status', 'GET /v1/amsat/status', 'AMSAT live status reports'),
-            array('/v1/health', 'GET /v1/health', 'Health and readiness'),
-            array('/docs', 'GET /docs', 'API reference'),
+            array('/v1/tle', 'GET /v1/tle', 'error.link.tle', 'Merged TLE feed, text or JSON'),
+            array('/v1/satellites', 'GET /v1/satellites', 'error.link.sats', 'SatNOGS satellite catalogue'),
+            array('/v1/transmitters', 'GET /v1/transmitters', 'error.link.tx', 'SatNOGS transmitter catalogue'),
+            array('/v1/amsat/status', 'GET /v1/amsat/status', 'error.link.amsat', 'AMSAT live status reports'),
+            array('/v1/health', 'GET /v1/health', 'error.link.health', 'Health and readiness'),
+            array('/docs', 'GET /docs', 'error.link.docs', 'API reference'),
         );
         $rows = '';
         foreach ($links as $link) {
-            $rows .= '<li><code>' . $esc($link[1]) . '</code> &mdash; ' . $esc($link[2]) . '</li>';
+            // The path is an API address and stays as it is; the sentence after it is
+            // prose and is translated.
+            $rows .= '<li><code>' . $esc($link[1]) . '</code> &mdash; ' . $esc($t($link[2], $link[3])) . '</li>';
         }
 
         $name = (string) Config::get('service.name', 'AzureOpenAPI for Satellite');
         $head = array(
             '<!DOCTYPE html>',
-            '<html lang="' . $esc($code) . '">',
+            '<html lang="' . $esc($tag) . '">',
             '<head>',
             '<meta charset="utf-8">',
             '<meta name="viewport" content="width=device-width, initial-scale=1">',
@@ -105,12 +109,13 @@ final class ErrorPage
             '<link rel="stylesheet" href="/assets/tokens.css' . HomePage::assetQueryFor('tokens.css') . '">',
             '<link rel="stylesheet" href="/assets/app.css' . HomePage::assetQueryFor('app.css') . '">',
             '<link rel="stylesheet" href="/assets/md3.css' . HomePage::assetQueryFor('md3.css') . '">',
+            '<link rel="stylesheet" href="/assets/metro.css' . HomePage::assetQueryFor('metro.css') . '">',
             CapBootstrap::render(),
             '</head>',
         );
 
         $document = implode("\n", $head) . "\n"
-            . '<body data-page="error" data-locale="' . $esc($code) . '">'
+            . '<body class="metro" data-page="error" data-locale="' . $esc($code) . '">'
             . $shell
             . '<main class="wrap error-page" id="main">'
             . '<div class="card error-page__card">'
@@ -120,6 +125,7 @@ final class ErrorPage
             . '<ul class="error-page__list">' . $rows . '</ul>'
             . '<p><a class="btn btn--primary" href="/">' . $esc($t('error.return', 'Back to the overview')) . '</a> '
             . '<a class="btn btn--ghost" href="/docs">' . $esc($t('nav.docs', 'API docs')) . '</a></p>'
+            . '<p class="error-page__lang">' . LocalePicker::render($locale, 'lang lang--inline') . '</p>'
             . '</div></main></body>' . "\n" . '</html>' . "\n";
 
         Response::raw($document, 'text/html; charset=utf-8', $replyStatus, array(

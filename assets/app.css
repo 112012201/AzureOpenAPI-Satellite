@@ -919,6 +919,21 @@ table.data td:first-child { white-space: nowrap; }
 
 .attrib .card a { font-size: 0.88rem; overflow-wrap: anywhere; }
 
+/* Reference links under an attribution card (currently AMSAT's API documentation).
+   One per row so a long URL never turns the description into a hyphenated ribbon. */
+.attrib__links {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.attrib__links li { display: grid; gap: 1px; }
+.attrib__links a { font-family: var(--font-mono); font-size: 0.78rem; }
+.attrib__links span { color: var(--fg-muted); }
+
 .attrib__tag {
   font-family: var(--font-mono);
   font-size: 0.74rem;
@@ -1170,6 +1185,69 @@ table.data td:first-child { white-space: nowrap; }
 }
 .announce__close:hover { background: var(--bg-sunken); color: var(--fg); }
 
+/* --- endpoint notice strip ----------------------------------------------
+   One strip for all three public addresses. Same shape as .announce (it sits in
+   the same place and is read the same way), but it is not a service notice: it is
+   a caveat about the address the visitor happens to be on, so it stays at the very
+   top and survives dismissal.
+
+   Two levels, and the difference is meaningful rather than decorative:
+     data-level="warning"  the visitor can lose service (direct origin, new path)
+     data-level="info"     the risk is only that data may be briefly behind
+   Using the warning colour for both would teach people to ignore the strip.
+
+   The cache readings start as an em dash and are filled by app.js from a live
+   response -- never server side, because the server cannot know the edge's
+   verdict. On an address with no edge the edge reading is not rendered at all. */
+.enote {
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-sunken);
+  color: var(--fg);
+  font-size: 0.875rem;
+}
+.enote[data-level="warning"] {
+  border-bottom-color: var(--warn, var(--line));
+  background: var(--warn-soft, var(--bg-sunken));
+}
+.enote[data-level="info"] {
+  border-bottom-color: var(--accent, var(--line));
+  background: var(--accent-soft, var(--bg-sunken));
+}
+.enote__inner {
+  max-width: var(--wrap);
+  margin: 0 auto;
+  padding: 8px var(--gutter);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.enote__badge {
+  flex: 0 0 auto;
+  font-weight: 600;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  color: var(--fg);
+}
+.enote[data-level="warning"] .enote__badge { color: var(--warn-ink, var(--fg)); }
+.enote[data-level="info"] .enote__badge { color: var(--accent-ink, var(--fg)); }
+.enote__text { margin: 0; color: var(--fg-muted); flex: 1 1 320px; min-width: 0; }
+.enote__meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-muted);
+}
+.enote__host { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.enote__cache b { color: var(--fg); font-weight: 600; }
+.enote__cache b[data-known="1"] { color: var(--accent-ink, var(--fg)); }
+
 /* --- cookie dialog ------------------------------------------------------ */
 .consent {
   position: fixed;
@@ -1218,6 +1296,180 @@ table.data td:first-child { white-space: nowrap; }
 }
 .consent__note[hidden] { display: none; }
 body.has-dialog { overflow: hidden; }
+
+/* --- announcement board (the dialog) ------------------------------------ */
+/*
+ * Sits one layer above the cookie dialog (z-index 65 vs 60) and one below the boot
+ * overlay (70): if two of them are ever on screen at once the more urgent one must
+ * be the one in front, and only the boot screen may cover everything. In practice
+ * never more than one is visible -- consent.js waits for `has-announce` to clear.
+ *
+ * The four levels are deliberately NOT the same colour. An "urgent" notice about the
+ * service being taken down and a "minor" typo notice wearing the same badge would
+ * teach people that the badge means nothing. --bad / --warn / --accent / muted is
+ * the same scale the endpoint strip uses, so the two things read as one system.
+ */
+.anm {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  display: grid;
+  place-items: center;
+  padding: var(--gutter);
+  background: rgba(8, 15, 24, 0.55);
+}
+.anm[hidden] { display: none; }
+.anm__panel {
+  max-width: 660px;
+  width: 100%;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-elev);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.anm__panel[hidden] { display: none; }
+.anm__panel[data-anm-level="urgent"] { border-top: 3px solid var(--bad); }
+.anm__panel[data-anm-level="important"] { border-top: 3px solid var(--warn); }
+.anm__panel[data-anm-level="normal"] { border-top: 3px solid var(--accent); }
+.anm__panel[data-anm-level="minor"] { border-top: 3px solid var(--line); }
+
+.anm__head { padding: 18px 22px 0; }
+.anm__chips { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
+.anm__chip {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+.anm__chip[data-level="urgent"] { background: var(--bad-soft); color: var(--bad-ink); }
+.anm__chip[data-level="important"] { background: var(--warn-soft); color: var(--warn-ink); }
+.anm__chip[data-level="normal"] { background: var(--accent-soft); color: var(--accent-ink); }
+.anm__chip[data-level="minor"] { background: var(--bg-sunken); color: var(--fg-muted); }
+.anm__eyebrow {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.anm__title { margin: 0 0 6px; font-size: 1.25rem; line-height: 1.35; }
+.anm__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0 0 10px;
+  font-size: 0.8125rem;
+  color: var(--fg-muted);
+}
+.anm__meta-key { opacity: 0.9; }
+.anm__meta time, .anm__meta b { color: var(--fg); font-weight: 600; }
+
+.anm__body {
+  padding: 6px 22px 16px;
+  overflow: auto;
+  flex: 1 1 auto;
+  font-size: 0.9375rem;
+  line-height: 1.65;
+}
+.anm__body > :first-child { margin-top: 0; }
+.anm__body > :last-child { margin-bottom: 0; }
+.anm__body h2, .anm__body h3, .anm__body h4 { margin: 16px 0 6px; font-size: 1rem; }
+.anm__body p { margin: 0 0 10px; }
+.anm__body ul, .anm__body ol { margin: 0 0 10px; padding-left: 20px; }
+.anm__body li { margin: 2px 0; }
+.anm__body a { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
+.anm__body code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--bg-sunken);
+  padding: 1px 5px;
+  border-radius: 5px;
+  word-break: break-word;
+}
+.anm__body pre {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  overflow: auto;
+  background: var(--bg-sunken);
+  border-radius: 8px;
+}
+.anm__body pre code { background: none; padding: 0; }
+.anm__body blockquote {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--line);
+  background: var(--bg-sunken);
+  border-radius: 0 8px 8px 0;
+  color: var(--fg-muted);
+}
+
+.anm__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 22px 16px;
+  border-top: 1px solid var(--line);
+}
+.anm__decline-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-right: auto;
+}
+.anm__decline { color: var(--bad-ink); }
+.anm__hint { font-size: 0.75rem; color: var(--fg-muted); }
+
+/* --- refusal gate ------------------------------------------------------- */
+/*
+ * Opaque, and it covers the viewport rather than floating over it: the requirement
+ * is that a refused mandatory notice hides the page CONTENT. It is a client-side
+ * cover, because the HTML was already sent (see the note in assets/announce.js).
+ * `body.has-announce` stops the page behind it from scrolling, so the cover cannot
+ * be "peeked past" by scrolling while the reader is still on the old scroll offset.
+ */
+.anm-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 66;
+  display: grid;
+  place-items: center;
+  padding: var(--gutter);
+  background: var(--bg);
+  color: var(--fg);
+}
+.anm-gate[hidden] { display: none; }
+.anm-gate__panel { max-width: 520px; width: 100%; text-align: center; }
+.anm-gate__mark {
+  /* display is not decorative here: a span is inline by default, and width/height/
+     border-radius are simply ignored on an inline box. Measured before the fix: the
+     circle never drew and the "!" sat on the text baseline. */
+  display: block;
+  width: 46px;
+  height: 46px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  background: var(--bad-soft);
+  color: var(--bad-ink);
+  font-size: 1.4rem;
+  font-weight: 700;
+  line-height: 46px;
+  text-align: center;
+}
+.anm-gate__mark::before { content: "!"; }
+.anm-gate__title { margin: 0 0 10px; font-size: 1.25rem; }
+.anm-gate__text { margin: 0 0 8px; color: var(--fg-muted); line-height: 1.6; }
+.anm-gate__text b { color: var(--fg); }
+.anm-gate__hint { margin: 0 0 16px; font-size: 0.8125rem; color: var(--fg-muted); }
+body.has-announce { overflow: hidden; }
 
 /* --- boot / proof-of-work overlay --------------------------------------- */
 .boot {
@@ -1354,6 +1606,12 @@ body.has-dialog { overflow: hidden; }
   .consent__panel { padding: 16px; max-height: 92vh; }
   .consent__actions { justify-content: stretch; }
   .consent__actions .btn { flex: 1 1 auto; }
+  .anm__panel { max-height: 92vh; }
+  .anm__head { padding: 16px 16px 0; }
+  .anm__body { padding: 6px 16px 12px; }
+  .anm__actions { padding: 12px 16px 14px; justify-content: stretch; }
+  .anm__actions .btn { flex: 1 1 auto; }
+  .anm__decline-wrap { width: 100%; margin: 0 0 4px; }
   .legal h1 { font-size: 1.4rem; }
   .announce__text { font-size: 0.875rem; }
 }
@@ -1368,4 +1626,76 @@ body.has-dialog { overflow: hidden; }
   .boot__ring { animation: none; }
   .boot__bar span { transition: none; }
   .lang__btn, .announce__close { transition: none; }
+}
+
+/* --- the page has no scrollbar ------------------------------------------
+   The document scrollbar was the one piece of browser chrome the design could not
+   style: a 15-17px gutter down the right edge that cut into the full-bleed film band
+   and stayed light over the dark page. It is removed here -- on every page, themed or
+   not -- while scrolling itself is untouched: wheel, touch, keyboard, PgUp/PgDn, Home
+   and End all work, and in-page anchors keep working.
+
+   `scrollbar-width` INHERITS, so turning it off on <html> alone would also take the bar
+   off every inner scroller (the announcement panel, the code samples, the wide tables),
+   which are the ones that need one. The second rule hands the default back to everything
+   that is not the document. */
+html { scrollbar-width: none; }
+html::-webkit-scrollbar { width: 0; height: 0; }
+body * { scrollbar-width: auto; }
+
+/* --- the corner controls wait for a scroll ------------------------------
+   The Cap pill is pinned to the bottom-left corner of every page, which on both the plain
+   site and every themed page is exactly where the film band types its slogan out; the
+   theme badge and the music bar join it there on a themed page. All of them stay hidden
+   until the visitor has scrolled the band's bottom edge past the corner, then fade in
+   (assets/app.js opens the gate).
+
+   THE GATE IS CLOSED BY THE MARKUP: Season::bodyAttrs() writes data-floats="gated" on
+   <body>, so no frame paints the controls before the script can hide them. A visitor
+   whose script never runs keeps the gate shut and loses nothing -- the music needs the
+   script to load, the exit button needs it to act, and the Cap pill is not painted until
+   it has run. The one page that opts out is /verify, whose <body> this never touches.
+
+   The Cap pill keeps the transition md3.css gives it (that rule owns its visibility
+   timing); only its opacity is gated here, so it still fades rather than blinking. */
+body[data-floats='gated'] .themebar,
+body[data-floats='gated'] .seasonbadge {
+  transition: opacity 240ms ease, transform 240ms ease;
+}
+body[data-floats='gated']:not(.floats-shown) .themebar,
+body[data-floats='gated']:not(.floats-shown) .seasonbadge,
+body[data-floats='gated']:not(.floats-shown) [data-cap-host]:not([data-cap-state='failed']) {
+  opacity: 0;
+  /* A hidden control must not eat the click that belongs to the page under it. */
+  pointer-events: none;
+}
+body[data-floats='gated']:not(.floats-shown) .themebar,
+body[data-floats='gated']:not(.floats-shown) .seasonbadge {
+  transform: translateY(10px);
+}
+
+/* A challenge that FAILED is the visitor's to retry, so that one state is never kept off
+   screen: the pill appears as soon as the error screen does, wherever the page is
+   scrolled to. Everything else waits for the scroll. */
+body[data-floats='gated'] [data-cap-host][data-cap-state='failed'] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-floats='gated'] .themebar,
+  body[data-floats='gated'] .seasonbadge { transition: none; }
+  body[data-floats='gated']:not(.floats-shown) .themebar,
+  body[data-floats='gated']:not(.floats-shown) .seasonbadge { transform: none; }
+}
+
+/* Scripting off: app.js will never open the gate, so it must not be shut. */
+@media (scripting: none) {
+  body[data-floats='gated'] .themebar,
+  body[data-floats='gated'] .seasonbadge,
+  body[data-floats='gated'] [data-cap-host] {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
 }

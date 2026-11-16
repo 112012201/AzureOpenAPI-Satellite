@@ -1,0 +1,80 @@
+/* ==========================================================================
+   spring.css — Spring Festival: the DEEPER red (宫墙红) + fireworks.
+
+   4 February 00:00 - 9 February 23:59 (the window closes at 10 February 00:00).
+
+   Same shape as newyear.css on purpose: same effect, same components, same music
+   player. What differs is the tone of the ground and the accent -- this one is the
+   deeper, slightly brown-leaning red of a palace wall, the New Year one is the lighter
+   朱红 -- so a visitor who sees both periods recognises the family and still knows
+   which one is running.
+
+   Contrast, measured on this palette: #f6e3d2 on #340a0d is 13.6:1, #dcae94 on
+   #340a0d is 8.1:1, #2b0507 on #e0a83c (the gold button) is 9.1:1.
+   ========================================================================== */
+
+body.spring {
+  /* app.css token family */
+  --bg: #340a0d;
+  --bg-elev: #451114;
+  --bg-sunken: #24060a;
+  --fg: #f6e3d2;
+  --fg-muted: #dcae94;
+  --line: #7d2a2c;
+  --accent: #e0a83c;
+  --accent-ink: #f3c876;
+  --accent-soft: rgba(224, 168, 60, 0.16);
+  --accent-2: #d8654e;
+  --accent-2-ink: #e8967f;
+  --ok: #86c99c;
+  --warn: #e6b154;
+  --bad: #e8796b;
+  --shadow: none;
+
+  /* tokens.css role family */
+  --surface: #340a0d;
+  --surface-dim: #24060a;
+  --surface-container-low: #3b0d10;
+  --surface-container: #451114;
+  --surface-container-high: #53181b;
+  --on-surface: #f6e3d2;
+  --on-surface-variant: #dcae94;
+  --outline: #8f3738;
+  --outline-variant: #6b2225;
+  --primary: #e0a83c;
+  --on-primary: #2b0507;
+  --primary-container: #6b2225;
+  --on-primary-container: #f6e3d2;
+  --card-bg: #3b0d10;
+  --card-border: #6b2225;
+  --btn-bg: transparent;
+  --field-bg: #3b0d10;
+  --field-border: #8f3738;
+  --code-bg: #24060a;
+  --dialog-bg: #3b0d10;
+  --header-bg: #3b0d10;
+  --header-border: #6b2225;
+
+  /* metro.css derived family */
+  --metro-tile: #451114;
+  --metro-tile-quiet: #3b0d10;
+  --metro-line: #6b2225;
+  --metro-ink: #f6e3d2;
+  --metro-ink-2: #dcae94;
+  --metro-accent: #e0a83c;
+  --metro-accent-ink: #f3c876;
+  /* Deep 宫墙红 for filled surfaces: darker than the New Year theme's equivalent, which
+     is what makes the two reds tell apart at a glance. */
+  --metro-fill: #8e1b1d;
+  --metro-on-fill: #fdf2e6;
+
+  color-scheme: dark;
+  color: var(--fg);
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(60rem 38rem at 80% -10%, rgba(224, 168, 60, 0.16), transparent 60%),
+    radial-gradient(56rem 40rem at 6% 104%, rgba(142, 27, 29, 0.5), transparent 66%);
+  background-attachment: fixed;
+}
+
+body.spring .fx { opacity: 0.92; }

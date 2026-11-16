@@ -43,6 +43,9 @@ $esc = static function ($value) {
 /* --- the shell, rendered once and reused for every locale ----------------- */
 $bootPage = 'error';
 $bootOwnConsent = false;
+// A static file has no clock: an announcement baked in here would outlive its own
+// `expires` date, so the board is skipped exactly like the address-dependent notice.
+$bootStatic = true;
 ob_start();
 require __DIR__ . '/../partials/shell.php';
 $shell = (string) ob_get_clean();
@@ -92,9 +95,10 @@ $document = '<!DOCTYPE html>' . "\n"
     . '<link rel="stylesheet" href="' . $esc($asset('tokens.css')) . '">' . "\n"
     . '<link rel="stylesheet" href="' . $esc($asset('app.css')) . '">' . "\n"
     . '<link rel="stylesheet" href="' . $esc($asset('md3.css')) . '">' . "\n"
+    . '<link rel="stylesheet" href="' . $esc($asset('metro.css')) . '">' . "\n"
     . CapBootstrap::render() . "\n"
     . '</head>' . "\n"
-    . '<body data-page="error" data-locale="en">'
+    . '<body class="metro" data-page="error" data-locale="en">'
     . $shell
     . '<main class="wrap error-page" id="main"><div class="card error-page__card">'
     . '<p class="error-page__code">404</p>'

@@ -43,7 +43,7 @@ curl_exec($ch); curl_close($ch);
 $ch = curl_init('https://www.space-track.org/basicspacedata/query/class/gp/NORAD_CAT_ID/25338,28654/format/3le');
 curl_setopt_array($ch, array(
     CURLOPT_COOKIEFILE => $jar, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
-    CURLOPT_HTTPHEADER => array('User-Agent: AzureOpenAPI-for-Satellite/3.1.2789-beta'),
+    CURLOPT_HTTPHEADER => array('User-Agent: AzureOpenAPI-for-Satellite/3.3.0+ra'),
 ));
 $body = (string) curl_exec($ch);
 $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -72,7 +72,7 @@ curl_exec($ch); curl_close($ch);
 $ch = curl_init('https://www.space-track.org/basicspacedata/query/class/gp/NORAD_CAT_ID/25338,28654/format/json');
 curl_setopt_array($ch, array(
     CURLOPT_COOKIEFILE => $jar2, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60,
-    CURLOPT_HTTPHEADER => array('User-Agent: AzureOpenAPI-for-Satellite/3.1.2789-beta'),
+    CURLOPT_HTTPHEADER => array('User-Agent: AzureOpenAPI-for-Satellite/3.3.0+ra'),
 ));
 $jb = (string) curl_exec($ch); curl_close($ch); @unlink($jar2);
 $d = json_decode($jb, true);

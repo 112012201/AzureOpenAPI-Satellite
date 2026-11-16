@@ -246,8 +246,10 @@ final class Router
         $tle = 'SatApi\\Api\\Endpoints\\Tle';
         $catalog = 'SatApi\\Api\\Endpoints\\Catalog';
         $amsat = 'SatApi\\Api\\Endpoints\\AmsatStatus';
+        $amsatApi = 'SatApi\\Api\\Endpoints\\AmsatApi';
         $system = 'SatApi\\Api\\Endpoints\\System';
         $consent = 'SatApi\\Api\\Endpoints\\Consent';
+        $admin = 'SatApi\\Api\\Endpoints\\Admin';
 
         self::$routes = array(
             // ---------- v1 ----------
@@ -258,6 +260,19 @@ final class Router
             array('pattern' => '#^/v1/satellites$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($catalog, 'satellites'), 'endpoint' => 'satnogs_satellites', 'bucket' => 'catalog'),
             array('pattern' => '#^/v1/transmitters$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($catalog, 'transmitters'), 'endpoint' => 'satnogs_transmitters', 'bucket' => 'catalog'),
             array('pattern' => '#^/v1/amsat/status$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($amsat, 'handle'), 'endpoint' => 'amsat_status', 'bucket' => 'amsat'),
+            // AMSAT's own v1 API, relayed as-is (see Api\Endpoints\AmsatApi for why it
+            // is a proxy rather than a parser, and why POST /reports is absent).
+            //
+            // The upstream names are kept, including the two legacy shapes, because a
+            // client migrating from status.amsat.org should be able to swap the host
+            // and nothing else.
+            array('pattern' => '#^/v1/amsat/catalog$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($amsatApi, 'handle'), 'endpoint' => 'amsat_catalog', 'bucket' => 'amsat', 'amsat_source' => 'catalog'),
+            array('pattern' => '#^/v1/amsat/reports$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($amsatApi, 'handle'), 'endpoint' => 'amsat_reports', 'bucket' => 'amsat', 'amsat_source' => 'reports'),
+            array('pattern' => '#^/v1/amsat/summary$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($amsatApi, 'handle'), 'endpoint' => 'amsat_summary', 'bucket' => 'amsat', 'amsat_source' => 'summary'),
+            array('pattern' => '#^/v1/amsat/statuses$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($amsatApi, 'handle'), 'endpoint' => 'amsat_statuses', 'bucket' => 'amsat', 'amsat_source' => 'statuses'),
+            array('pattern' => '#^/v1/amsat/health$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($amsatApi, 'handle'), 'endpoint' => 'amsat_health', 'bucket' => 'amsat', 'amsat_source' => 'health'),
+            array('pattern' => '#^/v1/amsat/satellites$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($amsatApi, 'handle'), 'endpoint' => 'amsat_satellites', 'bucket' => 'amsat', 'amsat_source' => 'satellites'),
+            array('pattern' => '#^/v1/amsat/sat-info$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($amsatApi, 'handle'), 'endpoint' => 'amsat_sat_info', 'bucket' => 'amsat', 'amsat_source' => 'sat-info'),
             array('pattern' => '#^/v1/meta$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($system, 'meta'), 'endpoint' => 'meta'),
             array('pattern' => '#^/v1/health$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($system, 'health'), 'endpoint' => 'health'),
             array('pattern' => '#^/v1/health/live$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($system, 'live'), 'endpoint' => 'health_live'),
@@ -265,6 +280,11 @@ final class Router
             array('pattern' => '#^/v1/status$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($system, 'status'), 'endpoint' => 'status'),
             array('pattern' => '#^/v1/maintenance$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($system, 'maintenanceRead'), 'endpoint' => 'maintenance'),
             array('pattern' => '#^/v1/maintenance$#', 'methods' => array('POST'), 'handler' => array($system, 'maintenanceWrite'), 'endpoint' => 'maintenance_write'),
+
+            // Operator surface. Registered in the normal table so it answers 405 for
+            // a GET instead of 404; it 404s on its own when no admin token is
+            // configured, which is the default deployment.
+            array('pattern' => '#^/v1/admin/reload$#', 'methods' => array('POST'), 'handler' => array($admin, 'reload'), 'endpoint' => 'admin_reload', 'admin' => true),
 
             // ---------- legacy (deprecated, kept compatible) ----------
             array('pattern' => '#^/tle$#', 'methods' => array('GET', 'HEAD'), 'handler' => array($tle, 'merged'), 'endpoint' => 'tle_merge', 'text' => true, 'legacy' => true, 'successor' => '/v1/tle', 'bucket' => 'tle'),
@@ -419,6 +439,12 @@ final class Router
         $out = array();
         foreach (self::$routes as $route) {
             if (strpos($route['pattern'], '/v1') === false) {
+                continue;
+            }
+            // The operator surface is not part of the published contract: /v1/meta is
+            // a public document, and listing a route that answers 404 unless a token
+            // is configured would advertise a door most deployments do not have.
+            if (!empty($route['admin'])) {
                 continue;
             }
             $out[] = array(
