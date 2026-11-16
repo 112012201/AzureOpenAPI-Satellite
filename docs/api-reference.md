@@ -1,6 +1,6 @@
 # AzureOpenAPI for Satellite — API 参考
 
-> **服务名**：`AzureOpenAPI for Satellite` · **版本**：`3.3.0+ra` · **API 版本**：`v1`
+> **服务名**：`AzureOpenAPI for Satellite` · **版本**：`3.3.1+ra` · **API 版本**：`v1`
 > （`lib/Config.php:38,40`；`service.name` 的取值就是这四个词，不是本文的文体主张）
 >
 > **Base URL**：`https://satellite.api.authskin.xyz` · 别名 `https://satellite.authskin.xyz`
@@ -99,7 +99,7 @@ etag: "d5bc6f46a4939edd9f0c249c458f603f"
 
 | 头 | 值 / 说明 |
 |---|---|
-| `X-Service-Version` | `3.3.0+ra`（`Response.php:227`） |
+| `X-Service-Version` | `3.3.1+ra`（`Response.php:227`） |
 | `X-Request-Id` | `req_` + 16 hex。**入站的 `X-Request-Id` 会被沿用**，但只接受 `^[A-Za-z0-9._-]{1,64}$`（`Request.php:97-101`） |
 | `Vary` | 默认 `Accept, Accept-Encoding`；JSON 端点再追加 `envelope`（`Base.php:130-136`） |
 | `Access-Control-Allow-Origin` | `*`（`cors.allow_origin` 默认 `*`，`Response.php:319-342`） |
@@ -269,7 +269,7 @@ sunset: <仅当配置了 legacy.sunset>
 **实测**（`?per_page=2`）响应体：
 
 ```json
-{"meta":{"service":"AzureOpenAPI for Satellite","version":"3.3.0+ra","api_version":"v1",
+{"meta":{"service":"AzureOpenAPI for Satellite","version":"3.3.1+ra","api_version":"v1",
  "generated":"2026-10-11T14:29:30Z","request_id":"req_fcfaf392ab6225ea","elapsed_ms":122,
  "consent":{…},"count":2,"total":2832,
  "source":{"id":"satnogs_satellites","label":"SatNOGS Satellites",
@@ -314,7 +314,7 @@ sunset: <仅当配置了 legacy.sunset>
 **实测**（`?limit=2`，`Content-Type: text/plain; charset=utf-8`）——正文就是**注释头 + 记录**：
 
 ```
-# AzureOpenAPI for Satellite v3.3.0+ra
+# AzureOpenAPI for Satellite v3.3.1+ra
 # Generated: 2026-10-11T10:01:01Z
 # Satellites: 1557
 # Cache TTL: 10800s
@@ -346,7 +346,7 @@ OPS 6582 (TRANSIT 5B-5)
 **实测**（`/v1/tle/weather?limit=1`）注释头与合并版不同：
 
 ```
-# AzureOpenAPI for Satellite v3.3.0+ra - source: CelesTrak Weather
+# AzureOpenAPI for Satellite v3.3.1+ra - source: CelesTrak Weather
 # Generated: 2026-10-11T10:00:30Z
 # Satellites: 72
 # Cache: HIT (ttl 21600s)
@@ -377,7 +377,7 @@ TTL `3600`——**实测**该端点当时是 `x-cache-status: STALE`，`cache-co
 
 无参数。`Cache-Control: public, max-age=300, s-maxage=600` + `ETag`。
 
-**实测** `meta.service = "AzureOpenAPI for Satellite"`、`version = "3.3.0+ra"`、`count: 7`（7 个数据源）。
+**实测** `meta.service = "AzureOpenAPI for Satellite"`、`version = "3.3.1+ra"`、`count: 7`（7 个数据源）。
 
 `data` 的键：`service` `endpoints` `legacy_routes` `sources` `limits` `errors` `cache_backend` `maintenance` `links`。
 
@@ -488,7 +488,7 @@ TTL `3600`——**实测**该端点当时是 `x-cache-status: STALE`，`cache-co
 
 | 头 | 何时 | 值 |
 |---|---|---|
-| `X-Service-Version` | 总是 | `3.3.0+ra` |
+| `X-Service-Version` | 总是 | `3.3.1+ra` |
 | `X-Request-Id` | 总是 | 入站 `X-Request-Id`（若合法）否则新生成 |
 | `Content-Type` | 总是 | `application/json` / `application/problem+json` / `text/plain` / `text/html` |
 | `Cache-Control` | 总是 | 数据端点见 0.3；无显式设置时 2xx = `public, max-age=60, s-maxage=300, stale-while-revalidate=600, stale-if-error=86400`，**≥400 = `no-store, no-cache, must-revalidate`** |

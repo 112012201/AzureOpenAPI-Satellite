@@ -26,7 +26,7 @@ return array(
 
     'service' => array(
         // 'name'        => 'AzureOpenAPI for Satellite',
-        // 'version'     => '3.3.0+ra',
+        // 'version'     => '3.3.1+ra',
         // 'homepage'    => 'https://www.authskin.xyz',
         // 'build'       => 'edgeone-2026-02',
     ),

@@ -129,12 +129,14 @@ final class Admin extends Base
     }
 
     /**
-     * The token from whichever of the three accepted places carries it.
+     * The token from whichever accepted place carries it.
      *
-     * A query parameter is accepted because `curl -X POST 'https://…/reload?token=…'`
-     * is what an operator reaches for under pressure, and a 401 at that moment is
-     * worse than the access-log exposure. The header forms are preferred and are
-     * what the documentation shows.
+     * The header forms are the documented ones and always work. A query parameter
+     * is read only when `admin.allow_query_token` is switched on, because a query
+     * string lands in the access log, in shell history, and (if the response ever
+     * links out) in a Referer -- and a logged admin token is a leaked credential.
+     * With the flag off, `?token=` is answered exactly like a wrong token: 401,
+     * with no hint about which place was checked.
      */
     private static function providedToken(Request $request)
     {
@@ -146,6 +148,10 @@ final class Admin extends Base
         $auth = trim((string) $request->header('authorization', ''));
         if (stripos($auth, 'bearer ') === 0) {
             return trim(substr($auth, 7));
+        }
+
+        if (!(bool) Config::get('admin.allow_query_token', false)) {
+            return '';
         }
 
         return trim((string) $request->param('token', ''));

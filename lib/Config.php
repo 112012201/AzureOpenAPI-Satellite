@@ -37,7 +37,7 @@ final class Config
             'service' => array(
                 'name'        => 'AzureOpenAPI for Satellite',
                 'slug'        => 'azureopenapi-for-satellite',
-                'version'     => '3.3.0+ra',
+                'version'     => '3.3.1+ra',
                 'api_version' => 'v1',
                 'description' => 'Unified TLE and satellite metadata proxy (CelesTrak, AMSAT, SatNOGS).',
                 // The official site of the operator, not the API hostname. It is where
@@ -315,7 +315,7 @@ final class Config
             ),
 
             'http' => array(
-                'user_agent'  => 'AzureOpenAPI-for-Satellite/3.3.0+ra (+https://satellite.api.authskin.xyz)',
+                'user_agent'  => 'AzureOpenAPI-for-Satellite/3.3.1+ra (+https://satellite.api.authskin.xyz)',
                 'verify_tls'  => true,
                 'ca_bundle'   => '',
                 'retries'     => 2,
@@ -457,6 +457,14 @@ final class Config
             'admin' => array(
                 // Empty token => maintenance writes are disabled (read-only mode).
                 'token' => '',
+                // Accept the token as `?token=` as well as in a header.
+                //
+                // OFF by default, and that is a security decision rather than a
+                // preference: a query string is written to the access log, kept in
+                // shell history, and travels as a Referer if the response ever links
+                // out. An admin token in an access log IS an admin credential.
+                // Turn it on only for a host whose logs nobody else can read.
+                'allow_query_token' => false,
             ),
 
             // ------------------------------------------------------------------

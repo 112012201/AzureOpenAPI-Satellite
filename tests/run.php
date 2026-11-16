@@ -656,10 +656,10 @@ T::same(90, Config::get('metrics.mysql.retention_days'), 'MySQL retention expres
 // up as a single failure here instead of as a silent public-contract mismatch.
 T::same('AzureOpenAPI for Satellite', Config::get('service.name'), 'service name is the agreed public name');
 T::same('azureopenapi-for-satellite', Config::get('service.slug'), 'service slug is the agreed slug');
-T::same('3.3.0+ra', Config::get('service.version'), 'service version matches the release');
+T::same('3.3.1+ra', Config::get('service.version'), 'service version matches the release');
 T::same('v1', Config::get('service.api_version'), 'api_version stays v1 (service version is separate)');
 T::truthy(
-    strpos((string) Config::get('http.user_agent'), '3.3.0+ra') !== false,
+    strpos((string) Config::get('http.user_agent'), '3.3.1+ra') !== false,
     'upstream User-Agent carries the release version'
 );
 T::truthy(
@@ -800,7 +800,7 @@ foreach ($summaries as $case => $summary) {
 if (method_exists('SatApi\\Api\\Endpoints\\Base', 'dataOnlyEnvelope')) {
     $dummyMeta = array(
         'service'   => 'AzureOpenAPI for Satellite',
-        'version'   => '3.3.0+ra',
+        'version'   => '3.3.1+ra',
         'generated' => gmdate('Y-m-d\TH:i:s\Z'),
         'count'     => 2,
         'total'     => 2,
@@ -2602,6 +2602,35 @@ T::ok(strpos(BingWebmaster::BASE, 'google') === false, 'and contains nothing for
 $bingCli = (string) @file_get_contents(Config::path('bin/bing.php'));
 T::ok(strpos($bingCli, 'self::key()') === false && strpos($bingCli, '->key()') === false, 'the CLI never reads the raw key, so it cannot print it');
 T::ok(strpos($bingCli, '--set-key') !== false, 'a rotation has a path that does not involve a chat message');
+
+/*
+ * Security review, 2026-11-16.
+ *
+ * Each of these guards something that was changed BECAUSE the review found it, or
+ * because the live web root became a git checkout. They are the assertions that
+ * stop a finding from quietly coming back.
+ */
+T::group('security review');
+
+// The admin token travels in a header by default. A query string lands in the
+// access log, in shell history and in a Referer; a logged admin token is a leaked
+// credential, so ?token= is refused unless the operator turns it back on.
+T::same(false, Config::get('admin.allow_query_token'), 'a query-string admin token is refused unless explicitly enabled');
+$adminSourceNow = (string) @file_get_contents(Config::path('lib/Api/Endpoints/Admin.php'));
+T::ok(strpos($adminSourceNow, 'admin.allow_query_token') !== false, 'the admin endpoint checks that switch before reading ?token=');
+T::ok(strpos($adminSourceNow, 'hash_equals') !== false, 'the token comparison stays constant-time');
+
+// Converting the live web root into a checkout put .git inside the document root.
+// One nginx rule keeps it unreachable, so that rule is asserted rather than assumed.
+$nginxSecurity = (string) @file_get_contents(Config::path('conf/bt-panel-rewrite.conf'));
+T::ok(strpos($nginxSecurity, 'location ~ /\\.(?!well-known)') !== false, 'dotfiles (including .git/) are refused by nginx');
+T::ok(strpos($nginxSecurity, '^~ /conf/') !== false, 'the conf directory is refused by nginx');
+
+// A per-server file that is chattr +i on the host cannot be tracked: git fails to
+// replace it and every pull aborts. .gitignore has to name it.
+$gitignoreNow = (string) @file_get_contents(Config::path('.gitignore'));
+T::ok(strpos($gitignoreNow, '.user.ini') !== false, 'the immutable per-server .user.ini is not tracked');
+T::ok(strpos($gitignoreNow, 'conf/cap.env') !== false, 'the Cap container environment file is not tracked');
 
 /*
  * Meta descriptions.

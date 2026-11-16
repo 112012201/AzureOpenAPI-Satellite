@@ -57,7 +57,7 @@ function stq($jar, $path)
     $ch = curl_init('https://www.space-track.org/basicspacedata/query/' . $path);
     curl_setopt_array($ch, array(
         CURLOPT_COOKIEFILE => $jar, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 90,
-        CURLOPT_HTTPHEADER => array('User-Agent: AzureOpenAPI-for-Satellite/3.3.0+ra'),
+        CURLOPT_HTTPHEADER => array('User-Agent: AzureOpenAPI-for-Satellite/3.3.1+ra'),
     ));
     $body = (string) curl_exec($ch);
     $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);

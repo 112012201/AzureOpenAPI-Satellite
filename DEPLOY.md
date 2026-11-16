@@ -35,7 +35,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 服务版本 | `3.3.0+ra`（`meta.version`，`X-Service-Version` 响应头） |
+| 服务版本 | `3.3.1+ra`（`meta.version`，`X-Service-Version` 响应头） |
 | API 版本 | `v1`（`/v1/*`），旧路径作为兼容层保留 |
 | 压缩包 | `satellite.api.authskin.xyz_optimized.tar.gz`（约 640 KB，75 个文件） |
 | 站点根目录 | `/www/wwwroot/satellite.api.authskin.xyz`（本文以宝塔默认路径为例） |
@@ -339,7 +339,7 @@ printf("api=%s version=%s count=%d first=%s\n",$d["meta"]["api_version"],$d["met
 printf("tle1=%s\n",$d["data"][0]["tle"][0]);'
 ```
 
-期望：`api=v1 version=3.3.0+ra count=1 first=ISS (ZARYA)`，且 `tle[0]` 以 `1 25544U` 开头。
+期望：`api=v1 version=3.3.1+ra count=1 first=ISS (ZARYA)`，且 `tle[0]` 以 `1 25544U` 开头。
 
 ### 9.3 条件请求（304）
 

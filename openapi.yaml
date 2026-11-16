@@ -12,7 +12,7 @@ openapi: 3.1.0
 
 info:
   title: AzureOpenAPI for Satellite
-  version: 3.3.0+ra
+  version: 3.3.1+ra
   summary: Unified TLE and satellite metadata proxy.
   description: |
     Unified TLE and satellite metadata proxy (CelesTrak, AMSAT, SatNOGS).
@@ -1032,7 +1032,7 @@ paths:
                 unacknowledged:
                   summary: 'Nothing provided yet'
                   value:
-                    meta: { service: AzureOpenAPI for Satellite, version: 3.3.0+ra, api_version: v1, generated: '2026-10-28T12:00:00Z', request_id: req_1a2b3c4d5e6f7a8b, elapsed_ms: 3, endpoint: { id: scdn, host: satellite.db.authskin.xyz, url: 'https://satellite.db.authskin.xyz', cdn: scdn, cdn_header: x-cache-status, status: new, testing: true, since: '2026-10-28' } }
+                    meta: { service: AzureOpenAPI for Satellite, version: 3.3.1+ra, api_version: v1, generated: '2026-10-28T12:00:00Z', request_id: req_1a2b3c4d5e6f7a8b, elapsed_ms: 3, endpoint: { id: scdn, host: satellite.db.authskin.xyz, url: 'https://satellite.db.authskin.xyz', cdn: scdn, cdn_header: x-cache-status, status: new, testing: true, since: '2026-10-28' } }
                     data: { required: [privacy, terms], accepted: false, state: missing, version: 1, urls: { privacy: '/legal/privacy.html', terms: '/legal/terms.html' }, hint: 'Include ?consent=privacy,terms&consent_version=1 to acknowledge both documents.' }
         '400': { $ref: '#/components/responses/BadRequest' }
 
@@ -1532,7 +1532,7 @@ components:
     XConsentRequired: { description: 'Advertises the privacy/terms acknowledgement contract. Present only while the client has NOT acknowledged both documents, so a compliant client sees no extra header. Format: `privacy,terms;version=1;state=missing|stale|invalid`.', schema: { type: string }, example: 'privacy,terms;version=1;state=missing' }
     XAdminToken: { description: 'Shared secret for the operator surface (`POST /v1/admin/reload`). Read from `admin.token`; when that is unset the route answers 404, i.e. it does not exist on that deployment.', schema: { type: string }, example: '<admin.token>' }
     XRequestId: { description: 'Unique id of this request, repeated in `meta.request_id` and in problem documents.', schema: { type: string }, example: 'req_43492d7eec89ee04' }
-    XServiceVersion: { description: 'Running service version.', schema: { type: string }, example: 3.3.0+ra }
+    XServiceVersion: { description: 'Running service version.', schema: { type: string }, example: 3.3.1+ra }
     XHealth: { description: 'Aggregate health of the service: `ok`, `degraded` or `critical`. Sent on `/v1/health`, `/v1/health/ready` and `/v1/status`.', schema: { type: string, enum: [ok, degraded, critical] }, example: ok }
     RetryAfter: { description: 'Seconds to wait before the request may be retried.', schema: { type: integer, minimum: 0 }, example: 30 }
     XRateLimitLimit: { description: 'Request budget of the current window.', schema: { type: integer, minimum: 0 }, example: 600 }
@@ -1684,7 +1684,7 @@ components:
       required: [service, version, api_version, generated, request_id, elapsed_ms]
       properties:
         service: { type: string, description: Service name., example: AzureOpenAPI for Satellite }
-        version: { type: string, description: Service version., example: 3.3.0+ra }
+        version: { type: string, description: Service version., example: 3.3.1+ra }
         api_version: { type: string, description: Public API version prefix., example: v1 }
         generated: { type: string, description: RFC 3339 UTC generation time., example: '2026-09-20T05:57:45Z' }
         request_id: { type: string, description: Unique id of this request., example: 'req_43492d7eec89ee04' }
@@ -2054,7 +2054,7 @@ components:
       required: [name, version, api_version, description, homepage, docs, openapi, status_page, license, contact, build]
       properties:
         name: { type: string, example: AzureOpenAPI for Satellite }
-        version: { type: string, example: 3.3.0+ra }
+        version: { type: string, example: 3.3.1+ra }
         api_version: { type: string, example: v1 }
         description: { type: string, example: 'Unified TLE and satellite metadata proxy (CelesTrak, AMSAT, SatNOGS).' }
         homepage: { type: string, example: 'https://satellite.api.authskin.xyz' }
@@ -2278,8 +2278,8 @@ components:
         overall: { type: string, enum: [ok, degraded, critical], description: 'Aggregate verdict; `critical` yields HTTP 503.', example: ok }
         timestamp: { type: string, description: 'Check time in UTC, formatted as "Y-m-d H:i:s" followed by " UTC".', example: '2026-09-20 05:57:50 UTC' }
         generated: { type: string, description: RFC 3339 UTC generation time., example: '2026-09-20T05:57:50Z' }
-        service: { type: string, description: Service name and version., example: AzureOpenAPI for Satellite v3.3.0+ra }
-        version: { type: string, example: 3.3.0+ra }
+        service: { type: string, description: Service name and version., example: AzureOpenAPI for Satellite v3.3.1+ra }
+        version: { type: string, example: 3.3.1+ra }
         api_version: { type: string, example: v1 }
         uptime_seconds: { type: number, minimum: 0, example: 864213 }
         checks: { $ref: '#/components/schemas/HealthChecks' }
@@ -2362,7 +2362,7 @@ components:
     MergedTleText:
       summary: 'Merged TLE text (three lines per satellite, `#` header)'
       value: |
-        # AzureOpenAPI for Satellite v3.3.0+ra
+        # AzureOpenAPI for Satellite v3.3.1+ra
         # Generated: 2026-09-20T05:57:44Z
         # Satellites: 3
         # Cache TTL: 10800s
@@ -2385,7 +2385,7 @@ components:
     SingleSourceTleText:
       summary: CelesTrak Amateur TLE text
       value: |
-        # AzureOpenAPI for Satellite v3.3.0+ra - source: CelesTrak Amateur
+        # AzureOpenAPI for Satellite v3.3.1+ra - source: CelesTrak Amateur
         # Generated: 2026-09-20T05:57:46Z
         # Satellites: 3
         # Cache: HIT (ttl 10800s)
@@ -2406,7 +2406,7 @@ components:
       value:
         meta:
           service: AzureOpenAPI for Satellite
-          version: 3.3.0+ra
+          version: 3.3.1+ra
           api_version: v1
           generated: '2026-09-20T05:57:45Z'
           request_id: 'req_43492d7eec89ee04'
@@ -2443,7 +2443,7 @@ components:
       value:
         meta:
           service: AzureOpenAPI for Satellite
-          version: 3.3.0+ra
+          version: 3.3.1+ra
           api_version: v1
           generated: '2026-09-20T05:57:47Z'
           request_id: 'req_ab1c252abc294c3d'
@@ -2478,7 +2478,7 @@ components:
       value:
         meta:
           service: AzureOpenAPI for Satellite
-          version: 3.3.0+ra
+          version: 3.3.1+ra
           api_version: v1
           generated: '2026-09-20T05:57:48Z'
           request_id: 'req_b2c39d50e904dffa'
@@ -2517,7 +2517,7 @@ components:
       value:
         meta:
           service: AzureOpenAPI for Satellite
-          version: 3.3.0+ra
+          version: 3.3.1+ra
           api_version: v1
           generated: '2026-09-20T05:57:49Z'
           request_id: 'req_b8285e86a79a7ede'
@@ -2536,7 +2536,7 @@ components:
       value:
         meta:
           service: AzureOpenAPI for Satellite
-          version: 3.3.0+ra
+          version: 3.3.1+ra
           api_version: v1
           generated: '2026-09-20T05:57:52Z'
           request_id: 'req_38fbd9951cc25301'
@@ -2545,7 +2545,7 @@ components:
         data:
           service:
             name: AzureOpenAPI for Satellite
-            version: 3.3.0+ra
+            version: 3.3.1+ra
             api_version: v1
             description: 'Unified TLE and satellite metadata proxy (CelesTrak, AMSAT, SatNOGS).'
             homepage: 'https://satellite.api.authskin.xyz'
@@ -2593,8 +2593,8 @@ components:
         overall: ok
         timestamp: '2026-09-20 05:57:50 UTC'
         generated: '2026-09-20T05:57:50Z'
-        service: AzureOpenAPI for Satellite v3.3.0+ra
-        version: 3.3.0+ra
+        service: AzureOpenAPI for Satellite v3.3.1+ra
+        version: 3.3.1+ra
         api_version: v1
         uptime_seconds: 864213
         checks:
@@ -2623,8 +2623,8 @@ components:
         overall: degraded
         timestamp: '2026-09-20 05:57:50 UTC'
         generated: '2026-09-20T05:57:50Z'
-        service: AzureOpenAPI for Satellite v3.3.0+ra
-        version: 3.3.0+ra
+        service: AzureOpenAPI for Satellite v3.3.1+ra
+        version: 3.3.1+ra
         api_version: v1
         uptime_seconds: 0
         checks:
@@ -2687,7 +2687,7 @@ components:
         <html lang="en">
           <head><meta charset="utf-8"><title>AzureOpenAPI for Satellite - status</title></head>
           <body>
-            <h1>AzureOpenAPI for Satellite 3.3.0+ra</h1>
+            <h1>AzureOpenAPI for Satellite 3.3.1+ra</h1>
             <p>status: <strong>ok</strong> | overall: ok | uptime: 10d 0h 3m</p>
             <table>
               <tr><th>cache</th><th>age</th><th>ttl</th><th>fresh</th></tr>
@@ -2702,7 +2702,7 @@ components:
       value:
         meta:
           service: AzureOpenAPI for Satellite
-          version: 3.3.0+ra
+          version: 3.3.1+ra
           api_version: v1
           generated: '2026-09-20T05:57:53Z'
           request_id: 'req_fd315bae61ef60ba'
@@ -2733,7 +2733,7 @@ components:
       value:
         meta:
           service: AzureOpenAPI for Satellite
-          version: 3.3.0+ra
+          version: 3.3.1+ra
           api_version: v1
           generated: '2026-09-20T05:57:53Z'
           request_id: 'req_fd315bae61ef60ba'

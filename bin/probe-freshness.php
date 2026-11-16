@@ -137,7 +137,7 @@ foreach ($datasets as $d) {
         $ch = curl_init($url);
         curl_setopt_array($ch, array(
             CURLOPT_COOKIEFILE => $jar, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 90,
-            CURLOPT_HTTPHEADER => array('User-Agent: AzureOpenAPI-for-Satellite/3.3.0+ra (+https://satellite.api.authskin.xyz)'),
+            CURLOPT_HTTPHEADER => array('User-Agent: AzureOpenAPI-for-Satellite/3.3.1+ra (+https://satellite.api.authskin.xyz)'),
         ));
         $body = (string) curl_exec($ch);
         curl_close($ch);

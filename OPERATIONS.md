@@ -792,6 +792,100 @@ URL 用"请求编入索引"。Bing 侧在 Webmaster Tools 里同样提交 sitema
 
 ---
 
+## 5.11 部署目录就是 git 检出（2026-11-16 起）
+
+线上 `/www/wwwroot/satellite.api.authskin.xyz` **本身是一个 git 检出**，更新走 `git pull`，
+不再用 tar 推送。仓库：<https://github.com/112012201/AzureOpenAPI-Satellite>（公开，`main` 分支）。
+
+### 为什么 web 根里会有 `.git`
+
+检出是原地建立的（`git init` + `fetch` + `checkout -f -B main`），所以 `.git/` 就躺在文档根里。
+**它靠一条 nginx 规则活着**：
+
+```nginx
+location ~ /\.(?!well-known) { return 404; }
+```
+
+实测 `/.git/config`、`/.git/HEAD`、`/.git/index` 全部 404。**这条规则一旦被删，整个源码历史（含
+所有历史版本）就公开可读**，`tests/run.php` 的 `security review` 组会盯着它。想彻底摆脱这个依赖，
+把仓库放到 web 根之外再用 `include`/符号链接——但那是另一次改动。
+
+### 日常更新
+
+```bash
+cd /www/wwwroot/satellite.api.authskin.xyz
+git fetch origin
+git log --oneline HEAD..origin/main
+git pull --ff-only origin main
+php tests/run.php
+```
+
+### `.user.ini` 这个坑（第一次 pull 就踩了）
+
+面板对 `.user.ini` 打了 `chattr +i`，git 无法替换它：
+
+```
+error: unable to unlink old '.user.ini': Operation not permitted
+```
+
+而且它里面是**本机的绝对路径**（`open_basedir=/www/wwwroot/satellite.api.authskin.xyz/:/tmp/`），
+本来就不该进仓库。现在它已在 `.gitignore` 里、不再被跟踪。若某天又需要改它：
+
+```bash
+chattr -i .user.ini    # 改
+chattr +i .user.ini    # 改回防篡改
+```
+
+同理不在仓库里、只在服务器上的：`conf/cap.env`、`conf/tle-groups.php`（生成）、`data/*.php`（生成）、
+各 `conf/*.php` 凭据、`assets/film|music/*.enc`、IndexNow 的 `<key>.txt`。
+
+### 回滚
+
+第一次转换时的完整备份留在 `/www/wwwroot/satellite.api.authskin.xyz.pregit-<时间戳>`（277MB，
+含当时全部文件）。整目录替换即可回滚到"非检出"状态。
+
+---
+
+## 5.12 安全审查结论（2026-11-16）
+
+范围：外部可达面 + 代码入口 + 凭据 + 头部。**结论：外部面是紧的，两个真问题已修，三条已记录。**
+
+### 已修
+
+| # | 问题 | 处理 |
+|---|---|---|
+| 1 | 管理令牌接受 `?token=` | 查询串会进 access log / shell 历史 / Referer，等于把管理凭据写进日志。改为**默认只认 `X-Admin-Token` 与 `Authorization: Bearer`**，`?token=` 需要 `admin.allow_query_token=true` 才生效（默认 false，401 与错令牌无差别） |
+| 2 | 转换检出后 web 根里出现 `.git/` | 已由点文件规则挡住（实测 404），并**加断言**防止规则被删；写进 §5.11 |
+| 3 | `.user.ini` 被跟踪 | 它含本机绝对路径且不可替换，导致每次 pull 中断；移出仓库并加入 `.gitignore` |
+
+### 已核验（无需改动）
+
+- **外部路径全部 404**：`/conf/*`（含 `cap.env`、`tle-groups.php`、`cap-compose.yml`）、`/data/*`、
+  `/logs/*`、`/lib/*`、`/partials/*`、`/tests/run.php`、`/bin/*`、`/.env`、`/.user.ini`、`/.git/*`。
+- **明文媒体不可下载**：根目录那支 151MB 的 `.flac`、`assets/film/*.mp4`、`assets/music/*.m4a` 全是
+  404 —— 静态白名单里没有这些扩展名。加密产物 `.enc` 才是 200。
+- **危险函数**：无 `eval`；`unserialize` 一律带 `allowed_classes => false`；无动态 include 用户输入；
+  无 `echo $_GET` 这类直出。
+- **错误处理**：`display_errors=Off`（php.ini 与应用双保险），500 只回通用文案，细节进日志。
+- **管理接口**：`hash_equals` 常量时间比较；未配置令牌时按 404 回（不暴露存在性）。
+- **Cookie**：`Secure; SameSite=Lax`，PoW 会话另加 `HttpOnly`。
+- **头部**：`nosniff` / `SAMEORIGIN` / `Referrer-Policy` / `Permissions-Policy` / `HSTS` 在 HTML 与
+  API 响应上都存在；`Server` 不泄漏版本；TRACE/PUT/DELETE 一律 405。
+- **CORS**：`*` 但不带凭据、只放 GET/HEAD/OPTIONS —— 公开只读 API 的合理选择。
+
+### 记录但未改（需要运维取舍）
+
+1. **应用层限流是关的**（`ratelimit.enabled=false`）。源站没有 CDN，`/v1/tle` 一次约 800KB，冷缓存
+   还会打上游。**为什么不直接开**：开启后按 `REMOTE_ADDR` 计数，而 `satellite.db` 那条 CDN 路径
+   的所有请求在源站看来是同一两个 IP —— 一开就把 CDN 用户共用一个桶。要开得先解决"CDN 后面怎么
+   拿到真实客户端 IP"（可信代理段 + 只对已知边缘 IP 采信 `X-Forwarded-For`）。限流实现本身是
+   **fail-open**（存储出错时放行），所以不存在"一开就把人挡在外面"的风险。
+2. **没有 CSP**。页面里有内联脚本（主题预置、JSON-LD、加载器），严格 CSP 需要 nonce 化，属独立改动。
+3. **根目录残留**：`404.php`（已无路由可达，nginx 兜底给 `error.html`）、151MB 明文 `.flac`、
+   `BingSiteAuth.xml`（Bing 验证文件，应保留）。前两个建议移出 web 根。
+
+---
+
 ## 6. 数据层运维
 
 ### 6.1 手动预热
@@ -1184,6 +1278,7 @@ done
 
 | 日期 | 变更 | 证据 |
 |---|---|---|
+| 2026-11-16 | 部署目录转为 **git 检出**（原地 `git init` + `checkout -f -B main`），更新改走 `git pull --ff-only`；安全审查：管理令牌默认不再接受 `?token=`、`.user.ini` 移出仓库、版本 3.3.1+ra | 检出后 `git log` = 75408cb、`php tests/run.php` 1138/1138、`/.git/config` 404；见 §5.11 / §5.12 |
 | 2026-11-14 | meta description 按 25–160 收敛：英文首页 176→135，中文首页 125→90，中文 docs 101→66；四个法务页各写一条（原为同一条 74 字） | 线上 6 页 × 3 语言实测 50–137；断言 1133 → **1138/1138**。见 §5.9 |
 | 2026-11-14 | Bing Webmaster API 接入：`bin/bing.php`（status/submit/sitemap/dry-run/set-key）+ `conf/bing.php` 0600；IndexNow 与它并行 | `--status` 掩码 `23a0****ff44`、1 个已验证站点、配额 98/1698、feeds 1 条 Success；`--submit` **200 accepted**（7 URL）；`--sitemap` **200**（随后 Pending）；断言 1124 → **1133/1133**。见 §5.10 |
 | 2026-11-14 | IndexNow 接入：key 生成 + `<key>.txt` 公开验证文件 + `bin/indexnow.php`（sitemap 单源提交）；站长平台验证 meta 标签就位 | 首提 `api.indexnow.org 202` / `bing 202`，5 分钟后二提 **200 / 200**；`--status` 自检 `HTTP 200, body matches the key`；断言 1103 → **1124/1124**。详见 §5.10 |

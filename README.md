@@ -9,7 +9,7 @@ cached at the edge.
 
 | | |
 |---|---|
-| **Version** | `3.3.0+ra` ([SemVer 2.0.0](https://semver.org/)) |
+| **Version** | `3.3.1+ra` ([SemVer 2.0.0](https://semver.org/)) |
 | **API version** | `v1` |
 | **Live** | <https://satellite.authskin.xyz> · CDN <https://satellite.db.authskin.xyz> |
 | **Docs** | <https://satellite.authskin.xyz/docs> · [OpenAPI 3.1](openapi.yaml) |
@@ -168,12 +168,12 @@ code itself is read per request).
 [Semantic Versioning 2.0.0](https://semver.org/). Versions are `MAJOR.MINOR.PATCH`, and a
 release is tagged `vX.Y.Z`.
 
-The current version is **`3.3.0+ra`**:
+The current version is **`3.3.1+ra`**:
 
 - `3.3.0` — features were added and the `/v1` contract did not change. (New endpoints,
   caching, SEO plumbing, media encryption: all additive.)
 - `+ra` — **build metadata**, not a pre-release. Under SemVer it is ignored when comparing
-  versions, so `3.3.0+ra` and `3.3.0` are the same release; the suffix is kept because this
+  versions, so `3.3.1+ra` and `3.3.0` are the same release; the suffix is kept because this
   deployment has always carried it. Compare with tags, not with the string.
 
 Earlier releases used a suffix that read like a pre-release: `3.2.12-RA`, where `-RA` means
