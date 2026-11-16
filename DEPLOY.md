@@ -696,7 +696,7 @@ nginx -t && nginx -s reload
 ```bash
 cd /www/wwwroot
 mv satellite.api.authskin.xyz satellite.api.authskin.xyz.before-git   # 保留现网文件
-git clone git@github.com:112012201/satapi.git satellite.api.authskin.xyz
+git clone git@github.com:112012201/AzureOpenAPI-Satellite.git satellite.api.authskin.xyz
 cd satellite.api.authskin.xyz
 
 # 把现网的私有配置与运行期目录搬回来（它们本来就不在仓库里）

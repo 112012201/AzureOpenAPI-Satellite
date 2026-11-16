@@ -59,7 +59,7 @@ Design promises that are actually enforced by the test suite:
 ## Quick start
 
 ```bash
-git clone https://github.com/112012201/satapi.git
+git clone https://github.com/112012201/AzureOpenAPI-Satellite.git
 cd satapi
 
 # Local development: PHP's built-in server, no nginx needed
