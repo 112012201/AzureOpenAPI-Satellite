@@ -21,3 +21,33 @@ _plan.md
 
 # Per-release planning documents (spec + wave plan) kept with the release notes
 _plan-v3.1.md
+
+# Media key material (generated, per-deployment)
+conf/media.php
+
+# IndexNow key + its published verification file (generated per deployment).
+# The file is named after the key, so there is no stable name to track: every
+# root-level .txt except robots.txt is generated.
+conf/indexnow.php
+/*.txt
+!/robots.txt
+
+# Bing Webmaster API credential (a real secret, mode 0600 on the server)
+conf/bing.php
+
+# Media: the source clips and the music are NOT source code.
+#
+# The server holds them encrypted (*.mp4.enc / *.m4a.enc, AES-256-CBC with the key in
+# conf/media.php); this working copy holds the plaintext. Publishing the plaintext
+# would undo the encryption the site ships, and 75 MB of video would make every clone
+# expensive. Ship media separately -- see README "Media" and OPERATIONS.md.
+#
+# Excluded by contents, not by directory, so the README that explains the encryption
+# can still be tracked: git will not re-include anything below an excluded directory.
+assets/film/*
+!assets/film/README.md
+assets/music/*
+!assets/music/README.md
+
+# Editor / hosting-panel debris: empty placeholders written by the panel, no content.
+_system~.ini
