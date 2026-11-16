@@ -1,4 +1,4 @@
-# AzureOpenAPI for Satellite v2.2 — 完整部署流程
+# AzureOpenAPI for Satellite v3.3 — 完整部署流程
 
 > 适用对象：`satellite.api.authskin.xyz`（CelesTrak / AMSAT / SatNOGS 卫星数据代理）优化版。
 > 交付物：`satellite.api.authskin.xyz_optimized.tar.gz`
@@ -269,7 +269,7 @@ OK: all required capabilities present
 
 ```bash
 php tests/run.php
-# 期望：assertions: 163  passed: 163  failed: 0
+# 期望：assertions: 1138  passed: 1138  failed: 0
 ```
 
 ---
@@ -664,7 +664,7 @@ cd /www/wwwroot/satellite.api.authskin.xyz
 
 # 环境 / 测试
 php tests/probe.php [--json]        # 运行环境能力自检（缺必需扩展时退出码 1）
-php tests/run.php [--verbose]       # 163 条单元断言
+php tests/run.php [--verbose]       # 1138 条断言
 php tests/request.php GET '/v1/tle?format=json' --seed   # 单请求调试
 
 # 运行维护
@@ -681,4 +681,55 @@ php index.php maintenance --disable=all|--disable=<endpoint>
 # Web
 nginx -t && nginx -s reload
 /etc/init.d/php-fpm-82 restart
+```
+
+---
+
+## 附录：从 GitHub 更新（`git fetch` / `git pull`）
+
+仓库是唯一事实来源；**部署目录是本仓库的一个检出，外加它自己的未跟踪配置**。
+`conf/config.php`、`conf/media.php`、`conf/indexnow.php`、`conf/bing.php` 永远不在仓库里，
+所以 `git pull` 不会覆盖任何凭据。
+
+### 首次把服务器变成检出
+
+```bash
+cd /www/wwwroot
+mv satellite.api.authskin.xyz satellite.api.authskin.xyz.before-git   # 保留现网文件
+git clone git@github.com:112012201/satapi.git satellite.api.authskin.xyz
+cd satellite.api.authskin.xyz
+
+# 把现网的私有配置与运行期目录搬回来（它们本来就不在仓库里）
+cp -a ../satellite.api.authskin.xyz.before-git/conf/config.php   conf/   2>/dev/null || true
+cp -a ../satellite.api.authskin.xyz.before-git/conf/media.php    conf/   2>/dev/null || true
+cp -a ../satellite.api.authskin.xyz.before-git/conf/indexnow.php conf/   2>/dev/null || true
+cp -a ../satellite.api.authskin.xyz.before-git/conf/bing.php     conf/   2>/dev/null || true
+mkdir -p data logs && chown -R www:www data logs
+```
+
+### 日常更新
+
+```bash
+cd /www/wwwroot/satellite.api.authskin.xyz
+
+git fetch origin                      # 只更新本地对远端的认知，磁盘上什么都不变
+git log --oneline HEAD..origin/main   # 看看会带来哪些提交
+git pull --ff-only origin main        # 应用
+php tests/run.php                     # 1138 条断言
+```
+
+- **`--ff-only` 是刻意的**：它会拒绝在生产机上生成合并提交。如果有人直接改过部署目录里的
+  受跟踪文件，pull 会直接失败并告诉你冲突在哪，而不是安静地分叉。
+- `git fetch` 永远是安全的那一半：不动工作区。
+- PHP 代码是每请求读取的，**不需要**重启 php-fpm；只有改了 `php.ini` / 池配置才需要。
+- 抓取失败（`Could not read from remote repository`）九成是：仓库名不对、服务器上没有对应的
+  部署密钥，或该密钥没有加进仓库的 deploy key。
+
+### 回滚
+
+```bash
+git log --oneline -5          # 找到上一个好版本
+git checkout <sha> -- .       # 只回滚文件（可再 pull 回来）
+# 或整体回到某个 tag：
+git checkout v3.3.0
 ```
