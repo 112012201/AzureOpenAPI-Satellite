@@ -1,5 +1,7 @@
 # AzureOpenAPI for Satellite
 
+**This project uses VibeCoding. Please pay attention to its effectiveness**
+
 **One de-duplicated TLE and satellite metadata feed**, merged from CelesTrak, AMSAT and
 SatNOGS DB — served as JSON or classic 20-column TLE, described by OpenAPI 3.1, and
 cached at the edge.
